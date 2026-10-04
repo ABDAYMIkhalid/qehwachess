@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { RouterProvider, useRouter } from '@/context/RouterContext';
 import { Language, LanguageProvider, useLanguage } from '@/context/LanguageContext';
@@ -130,6 +131,7 @@ export default function App() {
         <AuthProvider>
           <RouterProvider>
             <AppShell />
+            <Analytics />
           </RouterProvider>
         </AuthProvider>
       </LanguageProvider>
