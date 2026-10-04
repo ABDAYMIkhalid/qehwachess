@@ -1,0 +1,220 @@
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { Session, User } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
+import type { Profile, UserRole } from '@/types';
+
+interface AuthContextValue {
+  session: Session | null;
+  user: User | null;
+  profile: Profile | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    fullName: string,
+    role: UserRole,
+    cityId: string,
+    chessAccounts: {
+      username: string;
+      lichessUsername: string;
+      chesscomUsername: string;
+      fideId: string;
+    }
+  ) => Promise<{ error: string | null; confirmationRequired?: boolean }>;
+  resendSignupConfirmation: (email: string) => Promise<{ error: string | null }>;
+  signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        (async () => {
+          await loadProfile(session.user.id);
+          setLoading(false);
+        })();
+      } else {
+        setLoading(false);
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        (async () => {
+          await loadProfile(session.user.id);
+          setLoading(false);
+        })();
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  async function loadProfile(userId: string) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*, city:cities(*)')
+      .eq('id', userId)
+      .maybeSingle();
+    setProfile(data as Profile | null);
+  }
+
+  async function refreshProfile() {
+    if (user) await loadProfile(user.id);
+  }
+
+  async function ensureProfile(authUser: User) {
+    const { data: existingProfile, error: lookupError } = await supabase
+      .from('profiles')
+      .select('id, role')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    if (lookupError) return { error: lookupError.message };
+
+    const metadata = authUser.user_metadata;
+    const requestedRole = metadata.role;
+    const role: UserRole = requestedRole === 'organizer' ? 'organizer' : 'player';
+    if (existingProfile) {
+      if (role === 'organizer' && existingProfile.role === 'player') {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ role: 'organizer' })
+          .eq('id', authUser.id);
+        return { error: updateError?.message ?? null };
+      }
+      return { error: null };
+    }
+
+    const fullName =
+      (typeof metadata.full_name === 'string' && metadata.full_name) ||
+      (typeof metadata.name === 'string' && metadata.name) ||
+      authUser.email?.split('@')[0] ||
+      'Player';
+    const cityId = typeof metadata.city_id === 'string' ? metadata.city_id : null;
+
+    const { error: insertError } = await supabase.from('profiles').upsert(
+      {
+        id: authUser.id,
+        full_name: fullName,
+        email: authUser.email ?? '',
+        role,
+        city_id: cityId,
+        username: typeof metadata.username === 'string' ? metadata.username : null,
+        lichess_username: typeof metadata.lichess_username === 'string' ? metadata.lichess_username : null,
+        chesscom_username: typeof metadata.chesscom_username === 'string' ? metadata.chesscom_username : null,
+        fide_id: typeof metadata.fide_id === 'string' ? metadata.fide_id : null,
+      },
+      { onConflict: 'id', ignoreDuplicates: true }
+    );
+
+    return { error: insertError?.message ?? null };
+  }
+
+  async function signIn(email: string, password: string) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    if (!data.user) return { error: 'Sign-in succeeded but no user was returned.' };
+
+    const profileResult = await ensureProfile(data.user);
+    if (profileResult.error) return profileResult;
+
+    await loadProfile(data.user.id);
+    return { error: null };
+  }
+
+  async function signUp(
+    email: string,
+    password: string,
+    fullName: string,
+    role: UserRole,
+    cityId: string,
+    chessAccounts: {
+      username: string;
+      lichessUsername: string;
+      chesscomUsername: string;
+      fideId: string;
+    }
+  ) {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          role,
+          city_id: cityId,
+          username: chessAccounts.username.trim().replace(/^@/, ''),
+          lichess_username: chessAccounts.lichessUsername.trim().replace(/^@/, '') || null,
+          chesscom_username: chessAccounts.chesscomUsername.trim().replace(/^@/, '') || null,
+          fide_id: chessAccounts.fideId.trim() || null,
+        },
+      },
+    });
+
+    if (error) {
+      if (error.status === 429 || /rate.?limit/i.test(error.message)) {
+        return {
+          error:
+            'Sign-ups are temporarily rate-limited by Supabase. Please wait a while before trying again.',
+        };
+      }
+      return { error: error.message };
+    }
+
+    if (!data.user) return { error: 'Failed to create account' };
+
+    if (!data.session) {
+      return { error: null, confirmationRequired: true };
+    }
+
+    if (data.session) {
+      const profileResult = await ensureProfile(data.user);
+      if (profileResult.error) return profileResult;
+      await loadProfile(data.user.id);
+    }
+
+    return { error: null };
+  }
+
+  async function resendSignupConfirmation(email: string) {
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+    return { error: error?.message ?? null };
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setProfile(null);
+  }
+
+  return (
+    <AuthContext.Provider
+      value={{ session, user, profile, loading, signIn, signUp, resendSignupConfirmation, signOut, refreshProfile }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}
