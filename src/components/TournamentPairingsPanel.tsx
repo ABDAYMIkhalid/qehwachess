@@ -185,12 +185,19 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
       return { id, name: entrant?.name ?? t('Player'), rating: entrant?.rating ?? 0, points: points.get(id) ?? 0 };
     }).sort((a, b) => b.points - a.points || b.rating - a.rating || a.name.localeCompare(b.name));
   }, [allPairings, entrantById, entrants, isManager, points, t]);
+  const lastRound = rounds[rounds.length - 1];
+  const roundCreationBlockReason = loading
+    ? null
+    : entrants.length < 2
+      ? t('Need at least two confirmed participants to create a round.')
+      : lastRound && lastRound.status !== 'completed'
+        ? t('Enter all results in the current round before creating the next one.')
+        : null;
 
   async function createNextRound() {
     if (format !== 'swiss' || entrants.length < 2) return;
     setSaving(true);
     setError(null);
-    const lastRound = rounds[rounds.length - 1];
     if (lastRound?.status !== 'completed') {
       setError(t('Enter all results in the current round before creating the next one.'));
       setSaving(false);
@@ -249,6 +256,7 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
         <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg border border-brand-500/20 bg-brand-500/10"><Trophy className="h-5 w-5 text-brand-400" /></div><div><h2 className="text-xl font-bold text-white">{t('Rounds and Standings')}</h2><p className="text-sm text-gray-500">{format === 'swiss' ? t('Basic Swiss pairings; organizers confirm results.') : t('Automatic pairings are currently available for Swiss tournaments.')}</p></div></div>
         {isManager && format === 'swiss' && <Button onClick={() => void createNextRound()} disabled={saving || entrants.length < 2 || (rounds.length > 0 && rounds[rounds.length - 1].status !== 'completed')}>{saving ? t('Creating round...') : t('Create next round')}</Button>}
       </div>
+      {isManager && format === 'swiss' && roundCreationBlockReason && <p className="-mt-2 mb-4 text-sm text-gray-500">{roundCreationBlockReason} {entrants.length < 2 && `${t('Confirmed participants')}: ${entrants.length}/2`}</p>}
       {error && <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg border border-error-500/20 bg-error-500/10 p-3 text-sm text-error-400"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{t(error)}</div>}
       {loading ? <p className="text-sm text-gray-500">{t('Loading tournament pairings...')}</p> : (
         <>

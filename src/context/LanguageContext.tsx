@@ -65,6 +65,7 @@ const translations: Record<Exclude<Language, 'en'>, Record<string, string>> = {
     'Basic Swiss pairings; organizers confirm results.': 'Appariements suisses simplifiés ; les organisateurs valident les résultats.',
     'Automatic pairings are currently available for Swiss tournaments.': 'Les appariements automatiques sont actuellement disponibles pour les tournois suisses.',
     'Create next round': 'Créer la ronde suivante',
+    'Need at least two confirmed participants to create a round.': 'Il faut au moins deux participants confirmés pour créer une ronde.',
     'Creating round...': 'Création de la ronde...',
     'Enter all results in the current round before creating the next one.': 'Saisissez tous les résultats de la ronde en cours avant de créer la suivante.',
     'Swiss pairings cannot avoid a repeat opponent for this round.': 'Les appariements suisses ne peuvent éviter une nouvelle rencontre entre adversaires pour cette ronde.',
