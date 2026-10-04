@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, QrCode, ScanLine } from 'lucide-react';
+import { CheckCircle2, Download, QrCode, ScanLine } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/Card';
@@ -26,6 +26,11 @@ function isCheckInResult(value: unknown): value is CheckInResult {
     && typeof value.player_name === 'string'
     && 'checked_in_at' in value
     && typeof value.checked_in_at === 'string';
+}
+
+function escapeCsvCell(value: string): string {
+  const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safeValue.replace(/"/g, '""')}"`;
 }
 
 export function TournamentCheckInPanel({ tournamentId }: { tournamentId: string }) {
@@ -109,6 +114,25 @@ export function TournamentCheckInPanel({ tournamentId }: { tournamentId: string 
     setSubmitting(false);
   }
 
+  function downloadParticipantsCsv() {
+    const csvRows = [
+      ['Name', 'Username', 'Status', 'Checked in at'],
+      ...rows.map((row) => [
+        row.player?.full_name ?? t('Player'),
+        row.player?.username ?? '',
+        row.status,
+        row.checked_in_at ?? '',
+      ]),
+    ];
+    const csv = `\uFEFF${csvRows.map((csvRow) => csvRow.map(escapeCsvCell).join(',')).join('\r\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `tournament-${tournamentId}-participants.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   return (
     <Card className="p-6 sm:p-8">
       <div className="mb-5 flex items-center gap-3">
@@ -138,7 +162,12 @@ export function TournamentCheckInPanel({ tournamentId }: { tournamentId: string 
         </div>
 
         <div>
-          <h3 className="mb-3 text-sm font-semibold text-gray-300">{t('Confirmed participants')} ({rows.filter((row) => row.checked_in_at).length}/{rows.length})</h3>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-gray-300">{t('Confirmed participants')} ({rows.filter((row) => row.checked_in_at).length}/{rows.length})</h3>
+            <Button type="button" variant="outline" size="sm" onClick={downloadParticipantsCsv} disabled={loading || rows.length === 0}>
+              <Download className="h-4 w-4" />{t('Download CSV')}
+            </Button>
+          </div>
           {loading ? <p className="text-sm text-gray-500">{t('Loading participants...')}</p> : rows.length === 0 ? (
             <p className="text-sm text-gray-500">{t('No confirmed participants yet.')}</p>
           ) : (

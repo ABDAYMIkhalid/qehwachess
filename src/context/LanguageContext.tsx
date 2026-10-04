@@ -100,6 +100,7 @@ const translations: Record<Exclude<Language, 'en'>, Record<string, string>> = {
     'The check-in response was invalid.': 'La réponse du pointage est invalide.',
     'checked in successfully.': 'a été enregistré.',
     'Confirmed participants': 'Participants confirmés',
+    'Download CSV': 'Télécharger le CSV',
     'Loading participants...': 'Chargement des participants...',
     'No confirmed participants yet.': 'Aucun participant confirmé pour le moment.',
     'Player': 'Joueur',
