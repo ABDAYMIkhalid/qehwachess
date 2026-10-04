@@ -259,6 +259,13 @@ export function Navbar() {
                       {dashboardLabel}
                     </button>
                     <button
+                      onClick={() => navigate({ name: 'profile' })}
+                      className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm font-medium text-gray-300 hover:bg-white/5"
+                    >
+                      <Settings className="h-4 w-4" />
+                      {t('Profile Settings')}
+                    </button>
+                    <button
                       onClick={() => signOut()}
                       className="w-full text-left px-4 py-3 text-sm font-medium text-error-400 hover:bg-error-500/10 rounded-lg"
                     >
