@@ -68,7 +68,9 @@ export function CityDetailPage({ id }: { id: string }) {
                   <Card hover className="p-5 group cursor-pointer">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-brand-500/10 border border-brand-500/20 flex items-center justify-center flex-shrink-0">
-                        <Building2 className="w-5 h-5 text-brand-400" />
+                        {club.logo_url
+                          ? <img src={club.logo_url} alt={`${club.name} logo`} className="h-full w-full rounded-lg object-cover" />
+                          : <Building2 className="w-5 h-5 text-brand-400" />}
                       </div>
                       <div className="min-w-0">
                         <h3 className="font-semibold text-white group-hover:text-brand-300 transition-colors truncate">{club.name}</h3>

@@ -247,7 +247,9 @@ export function TournamentDetailPage({ id }: { id: string }) {
               <Link to={{ name: 'club', id: tournament.club.id }}>
                 <Card hover className="p-6 flex items-center gap-4 group cursor-pointer">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500/20 to-brand-700/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-                    <Building2 className="w-7 h-7 text-brand-400" />
+                    {tournament.club.logo_url
+                      ? <img src={tournament.club.logo_url} alt={`${tournament.club.name} logo`} className="h-full w-full rounded-xl object-cover" />
+                      : <Building2 className="w-7 h-7 text-brand-400" />}
                   </div>
                   <div className="flex-1">
                     <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{t('Organized by')}</p>
