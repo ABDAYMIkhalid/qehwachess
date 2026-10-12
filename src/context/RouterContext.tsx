@@ -82,7 +82,7 @@ function routeToHash(route: Route): string {
 }
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const [route, setRoute] = useState<Route>(parseHash);
+  const [route, setRoute] = useState<Route>(parseHash());
 
   useEffect(() => {
     const handler = () => {
@@ -127,7 +127,6 @@ export function Link({
       href={`#${routeToHash(to)}`}
       className={className}
       onClick={(e) => {
-        if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
         navigate(to);
         onClick?.();

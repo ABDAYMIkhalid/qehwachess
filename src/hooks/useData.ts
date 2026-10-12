@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { City, Club, Tournament, TournamentWithRelations } from '@/types';
-import { tournamentSearchFilter } from '@/lib/tournamentSearch';
 
 export function useCities() {
   const [cities, setCities] = useState<City[]>([]);
@@ -28,12 +27,8 @@ export function useTournaments(filters?: {
 }) {
   const [tournaments, setTournaments] = useState<TournamentWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
     (async () => {
       let query = supabase
         .from('tournaments')
@@ -47,63 +42,52 @@ export function useTournaments(filters?: {
       if (filters?.status) query = query.eq('status', filters.status);
       else query = query.eq('status', 'published');
 
-      if (filters?.search?.trim()) {
-        query = query.or(tournamentSearchFilter(filters.search));
+      if (filters?.search) {
+        query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,venue.ilike.%${filters.search}%`);
       }
 
-      const { data, error: queryError } = await query.abortSignal(controller.signal);
-      if (controller.signal.aborted) return;
+      const { data } = await query;
       setTournaments(data ?? []);
-      setError(queryError ? 'Could not load tournaments. Please try again.' : null);
       setLoading(false);
     })();
-    return () => controller.abort();
   }, [filters?.cityId, filters?.format, filters?.search, filters?.featuredOnly, filters?.organizerId, filters?.status]);
 
-  return { tournaments, loading, error };
+  return { tournaments, loading };
 }
 
 export function useTournament(id: string | undefined) {
   const [tournament, setTournament] = useState<TournamentWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [registrationCount, setRegistrationCount] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
-  async function refreshRegistrationCount() {
-    if (!id) return;
-    const { data, error: countError } = await supabase.rpc('get_tournament_registration_count', { p_tournament_id: id });
-    if (countError) throw new Error('Could not load registration availability. Please try again.');
-    setRegistrationCount(data ?? 0);
-  }
 
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setTournament(null);
-    setRegistrationCount(0);
-    setError(null);
     if (!id) {
       setLoading(false);
       return;
     }
     (async () => {
-      const [detailResult, countResult] = await Promise.all([
-        supabase.from('tournaments')
-          .select('*, city:cities(*), club:clubs(*), organizer:profiles(*)')
-          .eq('id', id).abortSignal(controller.signal).maybeSingle(),
-        supabase.rpc('get_tournament_registration_count', { p_tournament_id: id })
-          .abortSignal(controller.signal),
-      ]);
-      if (controller.signal.aborted) return;
-      setTournament(detailResult.data as TournamentWithRelations | null);
-      setRegistrationCount(countResult.data ?? 0);
-      setError(detailResult.error || countResult.error ? 'Could not load tournament details. Please try again.' : null);
+      const { data } = await supabase
+        .from('tournaments')
+        .select('*, city:cities(*), club:clubs(*), organizer:profiles(*)')
+        .eq('id', id)
+        .maybeSingle();
+
+      setTournament(data as TournamentWithRelations | null);
+
+      if (data) {
+        const { count } = await supabase
+          .from('registrations')
+          .select('id', { count: 'exact', head: true })
+          .eq('tournament_id', id)
+          .neq('status', 'cancelled');
+        setRegistrationCount(count ?? 0);
+      }
+
       setLoading(false);
     })();
-    return () => controller.abort();
   }, [id]);
 
-  return { tournament, loading, error, registrationCount, refreshRegistrationCount };
+  return { tournament, loading, registrationCount, setRegistrationCount };
 }
 
 export function useClubs() {

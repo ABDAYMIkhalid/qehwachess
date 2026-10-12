@@ -33,16 +33,16 @@ function AppRoutes() {
     switch (route.name) {
       case 'home': return <HomePage />;
       case 'tournaments': return <TournamentsPage />;
-      case 'tournament': return <TournamentDetailPage key={route.id} id={route.id} />;
+      case 'tournament': return <TournamentDetailPage id={route.id} />;
       case 'meetups': return <MeetupsPage />;
       case 'players': return <PlayersPage />;
       case 'map': return <EventMapPage />;
       case 'clubManagement': return <ClubManagementPage />;
       case 'messages': return <MessagesPage playerId={route.playerId} meetupId={route.meetupId} />;
       case 'clubs': return <ClubsPage />;
-      case 'club': return <ClubDetailPage key={route.id} id={route.id} />;
+      case 'club': return <ClubDetailPage id={route.id} />;
       case 'cities': return <CitiesPage />;
-      case 'city': return <CityDetailPage key={route.id} id={route.id} />;
+      case 'city': return <CityDetailPage id={route.id} />;
       case 'signin': return <SignInPage />;
       case 'signup': return <SignUpPage />;
       case 'dashboard':
