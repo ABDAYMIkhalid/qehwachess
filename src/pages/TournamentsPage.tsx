@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useTournaments, useCities } from '@/hooks/useData';
 import { TournamentCard } from '@/components/TournamentCard';
-import { PageLoader, EmptyState } from '@/components/ui/Feedback';
+import { PageLoader, EmptyState, ErrorState } from '@/components/ui/Feedback';
 import { Search, SlidersHorizontal, X, Trophy } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 
@@ -22,7 +22,7 @@ export function TournamentsPage() {
     [search, cityId, format]
   );
 
-  const { tournaments, loading } = useTournaments(filters);
+  const { tournaments, loading, error } = useTournaments(filters);
 
   const activeFilterCount = (cityId ? 1 : 0) + (format ? 1 : 0);
 
@@ -126,6 +126,8 @@ export function TournamentsPage() {
         {/* Results */}
         {loading ? (
           <PageLoader />
+        ) : error ? (
+          <ErrorState message={t(error)} />
         ) : tournaments.length === 0 ? (
           <EmptyState
             icon={<Trophy className="w-12 h-12" />}

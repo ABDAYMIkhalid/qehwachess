@@ -39,24 +39,36 @@ export function TournamentDetailPage({ id }: { id: string }) {
   const { t, language } = useLanguage();
   const { navigate } = useRouter();
   const { user, profile } = useAuth();
-  const { tournament, loading, registrationCount, setRegistrationCount } = useTournament(id);
+  const { tournament, loading, error: loadError, registrationCount, refreshRegistrationCount } = useTournament(id);
   const [registration, setRegistration] = useState<Registration | null>(null);
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [checkInQr, setCheckInQr] = useState<string | null>(null);
+  const [registrationLoading, setRegistrationLoading] = useState(false);
+  const [registrationLoadError, setRegistrationLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setRegistration(null);
+    setRegistrationLoadError(null);
+    setRegistrationLoading(false);
     if (!user || !tournament) return;
+    setRegistrationLoading(true);
     (async () => {
-      const { data } = await supabase
+      const { data, error: queryError } = await supabase
         .from('registrations')
         .select('*')
         .eq('tournament_id', id)
         .eq('player_id', user.id)
+        .abortSignal(controller.signal)
         .maybeSingle();
+      if (controller.signal.aborted) return;
       setRegistration(data as Registration | null);
+      setRegistrationLoadError(queryError ? 'Could not load your registration. Please try again.' : null);
+      setRegistrationLoading(false);
     })();
+    return () => controller.abort();
   }, [user, tournament, id]);
 
   useEffect(() => {
@@ -74,6 +86,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
   }, [registration?.check_in_token, registration?.status]);
 
   if (loading) return <div className="pt-24"><PageLoader /></div>;
+  if (loadError) return <div className="pt-24"><ErrorState message={t(loadError)} /></div>;
   if (!tournament) return <div className="pt-24"><ErrorState message={t('Tournament not found or no longer available.')} /></div>;
 
   const spotsLeft = tournament.max_participants - registrationCount;
@@ -98,43 +111,59 @@ export function TournamentDetailPage({ id }: { id: string }) {
 
     setRegistering(true);
     setError(null);
+    setSuccess(null);
 
-    const { data, error: insertError } = await supabase
-      .from('registrations')
-      .insert({
+    try {
+      const status = isFull ? 'waitlisted' : 'confirmed';
+      // Reuse a cancelled record: tournament/player is a unique pair.
+      const mutation = registration?.status === 'cancelled'
+        ? supabase.from('registrations').update({ status, checked_in_at: null })
+            .eq('id', registration.id).eq('player_id', user.id).eq('status', 'cancelled')
+        : supabase.from('registrations').insert({
         tournament_id: id,
-        player_id: user!.id,
-        status: isFull ? 'waitlisted' : 'confirmed',
-      })
-      .select()
-      .single();
+        player_id: user.id,
+        status,
+      });
+      const { data, error: insertError } = await mutation.select().single();
 
-    if (insertError) {
-      setError(insertError.code === '23505' ? t('You are already registered for this tournament.') : insertError.message);
-    } else {
-      setRegistration(data as Registration);
-      setRegistrationCount(registrationCount + 1);
-      setSuccess(isFull ? t("You've been added to the waitlist!") : t("You're registered! See you at the tournament."));
+      if (insertError) {
+        setError(insertError.code === '23505' ? t('You are already registered for this tournament.') : insertError.message);
+      } else {
+        setRegistration(data as Registration);
+        setSuccess(data.status === 'waitlisted' ? t("You've been added to the waitlist!") : t("You're registered! See you at the tournament."));
+        await refreshRegistrationCount();
+      }
+    } catch (registerError) {
+      setError(registerError instanceof Error ? registerError.message : t('Could not update your registration. Please try again.'));
+    } finally {
+      setRegistering(false);
     }
-    setRegistering(false);
   }
 
   async function handleCancel() {
     if (!registration) return;
     setRegistering(true);
     setError(null);
-    const { error: updateError } = await supabase
-      .from('registrations')
-      .update({ status: 'cancelled' })
-      .eq('id', registration.id);
-    if (updateError) {
-      setError(updateError.message);
-    } else {
-      setRegistration({ ...registration, status: 'cancelled' });
-      setRegistrationCount(Math.max(0, registrationCount - 1));
-      setSuccess(t('Your registration has been cancelled.'));
+    setSuccess(null);
+    try {
+      const { data, error: updateError } = await supabase
+        .from('registrations')
+        .update({ status: 'cancelled' })
+        .eq('id', registration.id)
+        .eq('player_id', user!.id)
+        .select().single();
+      if (updateError) {
+        setError(updateError.message);
+      } else {
+        setRegistration(data as Registration);
+        setSuccess(t('Your registration has been cancelled.'));
+        await refreshRegistrationCount();
+      }
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : t('Could not update your registration. Please try again.'));
+    } finally {
+      setRegistering(false);
     }
-    setRegistering(false);
   }
 
   const infoRows = [
@@ -305,10 +334,10 @@ export function TournamentDetailPage({ id }: { id: string }) {
                 </div>
 
                 {/* Alerts */}
-                {error && (
+                {(error || registrationLoadError) && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-error-500/10 border border-error-500/20 text-error-400 text-sm mb-4 animate-fade-in">
                     <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    {t(error)}
+                    {t(error || registrationLoadError || '')}
                   </div>
                 )}
                 {success && (
@@ -319,7 +348,11 @@ export function TournamentDetailPage({ id }: { id: string }) {
                 )}
 
                 {/* Action button */}
-                {isPast ? (
+                {registrationLoading || registrationLoadError ? (
+                  <Button variant="secondary" size="lg" className="w-full" disabled>
+                    {registrationLoading ? t('Loading your registration...') : t('Registration unavailable')}
+                  </Button>
+                ) : isPast ? (
                   <Button variant="secondary" size="lg" className="w-full" disabled>
                     {t('Tournament Ended')}
                   </Button>
@@ -327,7 +360,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
                   <div className="space-y-3">
                     <div className="flex items-center justify-center gap-2 p-3 rounded-lg bg-success-500/10 border border-success-500/20 text-success-400 text-sm font-medium">
                       <CheckCircle2 className="w-5 h-5" />
-                      {t("You're registered!")}
+                      {registration?.status === 'waitlisted' ? t("You've been added to the waitlist!") : t("You're registered!")}
                     </div>
                     {registration?.status === 'confirmed' && (
                       <div className="rounded-xl border border-surface-700 bg-surface-800/60 p-4 text-center">
@@ -351,8 +384,8 @@ export function TournamentDetailPage({ id }: { id: string }) {
                     {t('Registration Closed')}
                   </Button>
                 ) : isFull ? (
-                  <Button variant="outline" size="lg" className="w-full" onClick={handleRegister} disabled={registering || !user}>
-                    {registering ? t('Joining waitlist...') : t('Join Waitlist')}
+                  <Button variant="outline" size="lg" className="w-full" onClick={handleRegister} disabled={registering}>
+                    {registering ? t('Joining waitlist...') : user ? t('Join Waitlist') : t('Sign In to Register')}
                   </Button>
                 ) : (
                   <Button size="lg" className="w-full" onClick={handleRegister} disabled={registering}>
