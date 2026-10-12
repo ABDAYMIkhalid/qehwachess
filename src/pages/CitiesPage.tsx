@@ -1,7 +1,7 @@
 import { useCities, useTournaments } from '@/hooks/useData';
 import { Link } from '@/context/RouterContext';
 import { Card } from '@/components/ui/Card';
-import { PageLoader, EmptyState } from '@/components/ui/Feedback';
+import { PageLoader, EmptyState, ErrorState } from '@/components/ui/Feedback';
 import { MapPin, Trophy, ArrowRight } from 'lucide-react';
 import { useMemo } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
@@ -9,7 +9,7 @@ import { useLanguage } from '@/context/LanguageContext';
 export function CitiesPage() {
   const { t } = useLanguage();
   const { cities, loading } = useCities();
-  const { tournaments } = useTournaments();
+  const { tournaments, error } = useTournaments();
 
   const cityTournamentCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -20,7 +20,7 @@ export function CitiesPage() {
   }, [tournaments]);
 
   const citiesWithTournaments = useMemo(
-    () => cities.sort((a, b) => (cityTournamentCounts[b.id] ?? 0) - (cityTournamentCounts[a.id] ?? 0)),
+    () => [...cities].sort((a, b) => (cityTournamentCounts[b.id] ?? 0) - (cityTournamentCounts[a.id] ?? 0)),
     [cities, cityTournamentCounts]
   );
 
@@ -32,6 +32,7 @@ export function CitiesPage() {
           <p className="text-gray-500 mt-2">{t('Explore chess tournaments by city across Morocco')}</p>
         </div>
 
+        {error && <ErrorState message={t(error)} />}
         {loading ? (
           <PageLoader />
         ) : cities.length === 0 ? (

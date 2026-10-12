@@ -11,6 +11,13 @@ const languageNames: Record<Language, string> = {
 
 const translations: Record<Exclude<Language, 'en'>, Record<string, string>> = {
   fr: {
+    'Could not load tournaments. Please try again.': 'Impossible de charger les tournois. Veuillez réessayer.',
+    'Could not load tournament details. Please try again.': 'Impossible de charger les détails du tournoi. Veuillez réessayer.',
+    'Could not load registration availability. Please try again.': 'Impossible de charger les places disponibles. Veuillez réessayer.',
+    'Could not load your registration. Please try again.': 'Impossible de charger votre inscription. Veuillez réessayer.',
+    'Could not update your registration. Please try again.': 'Impossible de modifier votre inscription. Veuillez réessayer.',
+    'Loading your registration...': 'Chargement de votre inscription...',
+    'Registration unavailable': 'Inscription indisponible',
     'Discover · Play · Compete': 'Découvrir · Jouer · Se dépasser',
     NOW: 'MAINT.',
     Tournaments: 'Tournois',
@@ -457,6 +464,13 @@ const translations: Record<Exclude<Language, 'en'>, Record<string, string>> = {
     'Invalid login credentials': 'Identifiants de connexion invalides',
   },
   ar: {
+    'Could not load tournaments. Please try again.': 'تعذر تحميل البطولات. يرجى المحاولة مرة أخرى.',
+    'Could not load tournament details. Please try again.': 'تعذر تحميل تفاصيل البطولة. يرجى المحاولة مرة أخرى.',
+    'Could not load registration availability. Please try again.': 'تعذر تحميل الأماكن المتاحة. يرجى المحاولة مرة أخرى.',
+    'Could not load your registration. Please try again.': 'تعذر تحميل تسجيلك. يرجى المحاولة مرة أخرى.',
+    'Could not update your registration. Please try again.': 'تعذر تحديث تسجيلك. يرجى المحاولة مرة أخرى.',
+    'Loading your registration...': 'جار تحميل تسجيلك...',
+    'Registration unavailable': 'التسجيل غير متاح',
     'Discover · Play · Compete': 'اكتشف · العب · نافس',
     NOW: 'الآن',
     Tournaments: 'البطولات',

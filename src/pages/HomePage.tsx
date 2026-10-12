@@ -6,7 +6,7 @@ import { useTournaments, useCities } from '@/hooks/useData';
 import { TournamentCard } from '@/components/TournamentCard';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { PageLoader } from '@/components/ui/Feedback';
+import { PageLoader, ErrorState } from '@/components/ui/Feedback';
 import {
   Trophy,
   MapPin,
@@ -24,7 +24,7 @@ const moroccoCenter: [number, number] = [31.7917, -7.0926];
 export function HomePage() {
   const { t, language } = useLanguage();
   const translate = t;
-  const { tournaments, loading } = useTournaments();
+  const { tournaments, loading, error } = useTournaments();
   const { cities } = useCities();
 
   const featured = useMemo(
@@ -143,6 +143,8 @@ export function HomePage() {
 
         {loading ? (
           <PageLoader />
+        ) : error ? (
+          <ErrorState message={t(error)} />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {featured.map((t, i) => (
