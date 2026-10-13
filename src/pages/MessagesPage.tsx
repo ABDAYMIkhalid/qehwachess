@@ -69,6 +69,18 @@ export function MessagesPage({ playerId, meetupId }: { playerId?: string; meetup
     setError(null);
   }, [meetupId, playerId, user]);
 
+  const markThreadNotificationsRead = useCallback(async () => {
+    if (!user || (!playerId && !meetupId)) return;
+    const threadKey = meetupId ? `meetup:${meetupId}` : `player:${playerId}`;
+    const { error: updateError } = await supabase
+      .from('message_notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('recipient_id', user.id)
+      .eq('thread_key', threadKey)
+      .is('read_at', null);
+    if (updateError) setError(updateError.message);
+  }, [meetupId, playerId, user]);
+
   useEffect(() => {
     if (!user) return;
     const authUser = user;
@@ -162,7 +174,10 @@ export function MessagesPage({ playerId, meetupId }: { playerId?: string; meetup
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'community_messages' },
             () => {
-              if (active) void loadThread();
+              if (active) {
+                void loadThread();
+                void markThreadNotificationsRead();
+              }
             }
           )
           .subscribe()
@@ -172,7 +187,11 @@ export function MessagesPage({ playerId, meetupId }: { playerId?: string; meetup
       window.clearInterval(timer);
       if (channel) void supabase.removeChannel(channel);
     };
-  }, [loadThread, meetupId, playerId, t, user]);
+  }, [loadThread, markThreadNotificationsRead, meetupId, playerId, t, user]);
+
+  useEffect(() => {
+    void markThreadNotificationsRead();
+  }, [markThreadNotificationsRead]);
 
   const heading = useMemo(() => {
     if (meetupId) return meetup?.title ?? t('Meetup chat');

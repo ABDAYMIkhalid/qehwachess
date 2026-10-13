@@ -39,7 +39,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
   const { t, language } = useLanguage();
   const { navigate } = useRouter();
   const { user, profile } = useAuth();
-  const { tournament, loading, registrationCount, setRegistrationCount } = useTournament(id);
+  const { tournament, loading, registrationCount, registrationCountError, setRegistrationCount } = useTournament(id);
   const [registration, setRegistration] = useState<Registration | null>(null);
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +113,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
       setError(insertError.code === '23505' ? t('You are already registered for this tournament.') : insertError.message);
     } else {
       setRegistration(data as Registration);
-      setRegistrationCount(registrationCount + 1);
+      setRegistrationCount((count) => count + 1);
       setSuccess(isFull ? t("You've been added to the waitlist!") : t("You're registered! See you at the tournament."));
     }
     setRegistering(false);
@@ -131,7 +131,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
       setError(updateError.message);
     } else {
       setRegistration({ ...registration, status: 'cancelled' });
-      setRegistrationCount(Math.max(0, registrationCount - 1));
+      setRegistrationCount((count) => Math.max(0, count - 1));
       setSuccess(t('Your registration has been cancelled.'));
     }
     setRegistering(false);
@@ -247,7 +247,9 @@ export function TournamentDetailPage({ id }: { id: string }) {
               <Link to={{ name: 'club', id: tournament.club.id }}>
                 <Card hover className="p-6 flex items-center gap-4 group cursor-pointer">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500/20 to-brand-700/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-                    <Building2 className="w-7 h-7 text-brand-400" />
+                    {tournament.club.logo_url
+                      ? <img src={tournament.club.logo_url} alt={`${tournament.club.name} logo`} className="h-full w-full rounded-xl object-cover" />
+                      : <Building2 className="w-7 h-7 text-brand-400" />}
                   </div>
                   <div className="flex-1">
                     <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{t('Organized by')}</p>
@@ -300,8 +302,13 @@ export function TournamentDetailPage({ id }: { id: string }) {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    {registrationCount} / {tournament.max_participants} {t('registered')}
+                    {registrationCountError ? '—' : registrationCount} / {tournament.max_participants} {t('registered')}
                   </p>
+                  {registrationCountError && (
+                    <p role="alert" className="text-xs text-error-400 mt-2">
+                      {t('Could not load the number of registered players. Please refresh the page.')}
+                    </p>
+                  )}
                 </div>
 
                 {/* Alerts */}
