@@ -141,7 +141,9 @@ export function ClubDetailPage({ id }: { id: string }) {
         <Card className="p-6 sm:p-8 mb-8">
           <div className="flex flex-col sm:flex-row items-start gap-6">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500/20 to-brand-700/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-10 h-10 text-brand-400" />
+              {club.logo_url
+                ? <img src={club.logo_url} alt={`${club.name} logo`} className="h-full w-full rounded-2xl object-cover" />
+                : <Building2 className="w-10 h-10 text-brand-400" />}
             </div>
             <div className="flex-1">
               <h1 className="text-2xl sm:text-3xl font-bold text-white">{club.name}</h1>

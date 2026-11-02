@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { AlertCircle, Building2, Check, Clock3, MapPin, Plus, Trash2, Users, X } from 'lucide-react';
+import { AlertCircle, Building2, Check, Clock3, ImagePlus, MapPin, Pencil, Plus, Trash2, Users, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/context/RouterContext';
 import { useCities } from '@/hooks/useData';
@@ -43,6 +43,8 @@ export function ClubManagementPage() {
   const [saving, setSaving] = useState(false);
   const [teamSaving, setTeamSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingClubId, setEditingClubId] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', city_id: '', description: '', address: '', contact_email: '', contact_phone: '' });
 
@@ -136,32 +138,113 @@ export function ClubManagementPage() {
     return <div className="pt-24"><ErrorState message={t('Organizer access required to manage clubs.')} /></div>;
   }
 
-  async function createClub(event: FormEvent<HTMLFormElement>) {
+  function resetClubForm() {
+    setForm({ name: '', city_id: '', description: '', address: '', contact_email: '', contact_phone: '' });
+    setLogoFile(null);
+    setEditingClubId(null);
+  }
+
+  function editClub(club: Club) {
+    setForm({
+      name: club.name,
+      city_id: club.city_id ?? '',
+      description: club.description,
+      address: club.address ?? '',
+      contact_email: club.contact_email ?? '',
+      contact_phone: club.contact_phone ?? '',
+    });
+    setLogoFile(null);
+    setEditingClubId(club.id);
+    setError(null);
+    setShowForm(true);
+  }
+
+  async function uploadClubLogo(clubId: string, file: File) {
+    if (!user) return { logoUrl: null, error: t('You must be signed in to upload a club logo.') };
+    const extensions: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+    };
+    const extension = extensions[file.type];
+    if (!extension || file.size > 5 * 1024 * 1024) {
+      return { logoUrl: null, error: t('Choose a JPEG, PNG, WebP, or GIF image no larger than 5 MB.') };
+    }
+
+    const path = `${user.id}/${clubId}/logo.${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from('club-logos')
+      .upload(path, file, { cacheControl: '3600', contentType: file.type, upsert: true });
+    if (uploadError) return { logoUrl: null, error: uploadError.message };
+
+    const { data } = supabase.storage.from('club-logos').getPublicUrl(path);
+    const logoUrl = `${data.publicUrl}?v=${Date.now()}`;
+    const { error: updateError } = await supabase
+      .from('clubs')
+      .update({ logo_url: logoUrl })
+      .eq('id', clubId);
+    if (updateError) return { logoUrl: null, error: updateError.message };
+    return { logoUrl, error: null };
+  }
+
+  async function saveClub(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user || !form.city_id) return;
     setSaving(true);
     setError(null);
-    const { data, error: insertError } = await supabase
-      .from('clubs')
-      .insert({
-        name: form.name.trim(),
-        city_id: form.city_id,
-        description: form.description.trim(),
-        address: form.address.trim() || null,
-        contact_email: form.contact_email.trim() || null,
-        contact_phone: form.contact_phone.trim() || null,
-        organizer_id: user.id,
-      })
-      .select('*, city:cities(*)')
-      .single();
-    if (insertError) {
-      setError(insertError.message);
-    } else if (data) {
-      setClubs((current) => [...current, data as Club].sort((a, b) => a.name.localeCompare(b.name)));
-      setSelectedClubId(data.id);
-      setShowForm(false);
-      setForm({ name: '', city_id: '', description: '', address: '', contact_email: '', contact_phone: '' });
+    const clubFields = {
+      name: form.name.trim(),
+      city_id: form.city_id,
+      description: form.description.trim(),
+      address: form.address.trim() || null,
+      contact_email: form.contact_email.trim() || null,
+      contact_phone: form.contact_phone.trim() || null,
+    };
+    const result = editingClubId
+      ? await supabase
+          .from('clubs')
+          .update(clubFields)
+          .eq('id', editingClubId)
+          .select('*, city:cities(*)')
+          .single()
+      : await supabase
+          .from('clubs')
+          .insert({ ...clubFields, organizer_id: user.id })
+          .select('*, city:cities(*)')
+          .single();
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
     }
+
+    let savedClub = result.data as Club;
+    setClubs((current) => {
+      const exists = current.some((club) => club.id === savedClub.id);
+      const updated = exists
+        ? current.map((club) => club.id === savedClub.id ? savedClub : club)
+        : [...current, savedClub];
+      return updated.sort((a, b) => a.name.localeCompare(b.name));
+    });
+    setSelectedClubId(savedClub.id);
+    setEditingClubId(savedClub.id);
+
+    if (logoFile) {
+      const { logoUrl, error: logoError } = await uploadClubLogo(savedClub.id, logoFile);
+      if (logoError) {
+        setError(`${t('Club details saved, but the logo could not be uploaded:')} ${logoError}`);
+        setShowForm(true);
+        setSaving(false);
+        return;
+      }
+      savedClub = { ...savedClub, logo_url: logoUrl };
+      setClubs((current) => current.map((club) => club.id === savedClub.id ? savedClub : club));
+    }
+
+    setShowForm(false);
+    resetClubForm();
     setSaving(false);
   }
 
@@ -259,15 +342,23 @@ export function ClubManagementPage() {
             <h1 className="text-3xl font-bold text-white">{t('Club Management')}</h1>
             <p className="mt-2 text-gray-500">{t('Create a club, review membership requests, and manage your roster.')}</p>
           </div>
-          <Button onClick={() => setShowForm((current) => !current)}><Plus className="h-4 w-4" />{showForm ? t('Close') : t('Create Club')}</Button>
+          <Button onClick={() => {
+            if (showForm) {
+              setShowForm(false);
+              resetClubForm();
+            } else {
+              resetClubForm();
+              setShowForm(true);
+            }
+          }}><Plus className="h-4 w-4" />{showForm ? t('Close') : t('Create Club')}</Button>
         </div>
 
         {error && <div role="alert" className="mb-5 flex items-start gap-2 rounded-lg border border-error-500/20 bg-error-500/10 p-3 text-sm text-error-400"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
 
         {showForm && (
           <Card className="mb-7 p-5 sm:p-7">
-            <h2 className="mb-5 text-xl font-bold text-white">{t('Create a chess club')}</h2>
-            <form onSubmit={createClub} className="grid gap-4 sm:grid-cols-2">
+            <h2 className="mb-5 text-xl font-bold text-white">{t(editingClubId ? 'Edit club details' : 'Create a chess club')}</h2>
+            <form onSubmit={saveClub} className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm text-gray-400">{t('Club name')} *
                 <input required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 w-full rounded-lg border border-surface-700 bg-surface-800 px-3.5 py-2.5 text-white" />
               </label>
@@ -289,7 +380,32 @@ export function ClubManagementPage() {
               <label className="text-sm text-gray-400">{t('Contact Phone')}
                 <input value={form.contact_phone} onChange={(event) => setForm({ ...form, contact_phone: event.target.value })} className="mt-1.5 w-full rounded-lg border border-surface-700 bg-surface-800 px-3.5 py-2.5 text-white" />
               </label>
-              <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={saving || cities.length === 0}>{saving ? t('Creating...') : t('Create Club')}</Button></div>
+              <label className="text-sm text-gray-400 sm:col-span-2">{t('Club logo')}
+                <span className="mt-1.5 flex items-center gap-3 rounded-lg border border-surface-700 bg-surface-800 px-3.5 py-2.5">
+                  <ImagePlus className="h-5 w-5 shrink-0 text-brand-400" />
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      if (file && (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 5 * 1024 * 1024)) {
+                        setError(t('Choose a JPEG, PNG, WebP, or GIF image no larger than 5 MB.'));
+                        event.target.value = '';
+                        setLogoFile(null);
+                        return;
+                      }
+                      setError(null);
+                      setLogoFile(file);
+                    }}
+                    className="min-w-0 w-full text-sm text-gray-300 file:mr-3 file:rounded-md file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:font-semibold file:text-white"
+                  />
+                </span>
+                <span className="mt-1 block text-xs text-gray-500">{t('Optional. JPEG, PNG, WebP, or GIF up to 5 MB.')}</span>
+              </label>
+              <div className="flex justify-end gap-2 sm:col-span-2">
+                {editingClubId && <Button type="button" variant="ghost" onClick={() => { setShowForm(false); resetClubForm(); }}>{t('Cancel')}</Button>}
+                <Button type="submit" disabled={saving || cities.length === 0}>{saving ? t('Saving...') : t(editingClubId ? 'Save club details' : 'Create Club')}</Button>
+              </div>
             </form>
           </Card>
         )}
@@ -307,7 +423,18 @@ export function ClubManagementPage() {
               <div className="flex gap-4 text-sm text-gray-400"><span>{pendingCount} {t('Pending requests')}</span><span>{activeCount} {t('Active members')}</span></div>
             </div>
 
-            {selectedClub && <Card className="mb-5 flex items-center gap-3 p-4"><Building2 className="h-5 w-5 text-brand-400" /><div><p className="font-semibold text-white">{selectedClub.name}</p><p className="flex items-center gap-1 text-sm text-gray-500"><MapPin className="h-3.5 w-3.5" />{selectedClub.city?.name}</p></div></Card>}
+            {selectedClub && (
+              <Card className="mb-5 flex flex-wrap items-center gap-3 p-4">
+                {selectedClub.logo_url
+                  ? <img src={selectedClub.logo_url} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                  : <Building2 className="h-5 w-5 text-brand-400" />}
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-white">{selectedClub.name}</p>
+                  <p className="flex items-center gap-1 text-sm text-gray-500"><MapPin className="h-3.5 w-3.5" />{selectedClub.city?.name}</p>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => editClub(selectedClub)}><Pencil className="h-4 w-4" />{t('Edit club details')}</Button>
+              </Card>
+            )}
 
             <h2 className="mb-3 flex items-center gap-2 text-xl font-bold text-white"><Users className="h-5 w-5 text-brand-400" />{t('Members and requests')}</h2>
             {memberships.length === 0 ? <Card className="p-5"><EmptyState icon={<Users className="h-10 w-10" />} title={t('No members yet')} description={t('Membership requests will appear here.')} /></Card> : (

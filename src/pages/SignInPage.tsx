@@ -76,6 +76,16 @@ export function SignInPage() {
               {resending ? t('Sending confirmation email...') : t('Resend confirmation email')}
             </button>
           )}
+          {!error?.toLowerCase().includes('email not confirmed') && (
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={resending || !email}
+              className="mb-4 text-sm font-medium text-brand-300 hover:text-brand-200 disabled:opacity-50"
+            >
+              {resending ? t('Sending confirmation email...') : t('Verify your email address')}
+            </button>
+          )}
           {notice && <p role="status" className="mb-4 text-sm text-success-400">{t(notice)}</p>}
           {resendError && <p role="alert" className="mb-4 text-sm text-error-400">{t(resendError)}</p>}
 

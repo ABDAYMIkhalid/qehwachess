@@ -59,12 +59,15 @@ export function useTournament(id: string | undefined) {
   const [tournament, setTournament] = useState<TournamentWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [registrationCount, setRegistrationCount] = useState(0);
+  const [registrationCountError, setRegistrationCountError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) {
       setLoading(false);
       return;
     }
+    setRegistrationCount(0);
+    setRegistrationCountError(null);
     (async () => {
       const { data } = await supabase
         .from('tournaments')
@@ -73,21 +76,41 @@ export function useTournament(id: string | undefined) {
         .maybeSingle();
 
       setTournament(data as TournamentWithRelations | null);
-
-      if (data) {
-        const { count } = await supabase
-          .from('registrations')
-          .select('id', { count: 'exact', head: true })
-          .eq('tournament_id', id)
-          .neq('status', 'cancelled');
-        setRegistrationCount(count ?? 0);
-      }
-
       setLoading(false);
     })();
   }, [id]);
 
-  return { tournament, loading, registrationCount, setRegistrationCount };
+  useEffect(() => {
+    if (!id) return;
+
+    let active = true;
+    const refreshRegistrationCount = async () => {
+      const { data, error } = await supabase.rpc('get_tournament_registration_count', {
+        p_tournament_id: id,
+      });
+      if (!active) return;
+      if (error) {
+        setRegistrationCountError(error.message);
+        return;
+      }
+      setRegistrationCount(data ?? 0);
+      setRegistrationCountError(null);
+    };
+
+    void refreshRegistrationCount();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshRegistrationCount();
+    }, 10_000);
+    window.addEventListener('focus', refreshRegistrationCount);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshRegistrationCount);
+    };
+  }, [id]);
+
+  return { tournament, loading, registrationCount, registrationCountError, setRegistrationCount };
 }
 
 export function useClubs() {

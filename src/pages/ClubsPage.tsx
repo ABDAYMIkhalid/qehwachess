@@ -29,7 +29,9 @@ export function ClubsPage() {
                 <Card hover className="p-6 h-full group cursor-pointer animate-fade-in-up" >
                   <div className="flex items-start gap-4 mb-4">
                     <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500/20 to-brand-700/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-                      <Building2 className="w-7 h-7 text-brand-400" />
+                      {club.logo_url
+                        ? <img src={club.logo_url} alt={`${club.name} logo`} className="h-full w-full rounded-xl object-cover" />
+                        : <Building2 className="w-7 h-7 text-brand-400" />}
                     </div>
                     <div className="min-w-0">
                       <h3 className="font-bold text-white group-hover:text-brand-300 transition-colors">{club.name}</h3>

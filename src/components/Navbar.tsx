@@ -4,7 +4,8 @@ import { useAuth } from '@/context/AuthContext';
 import { Language, useLanguage } from '@/context/LanguageContext';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/context/ThemeContext';
-import { Menu, X, LayoutDashboard, Shield, Settings, LogOut, ChevronDown, Crown, MessageCircle, Sun, Moon } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { Menu, X, LayoutDashboard, Shield, Settings, LogOut, ChevronDown, Crown, MessageCircle, Sun, Moon, Bell } from 'lucide-react';
 
 export function Navbar() {
   const { route, navigate } = useRouter();
@@ -14,6 +15,11 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
+    () => typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
+  );
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
@@ -25,6 +31,87 @@ export function Navbar() {
     setMobileOpen(false);
     setUserMenuOpen(false);
   }, [route]);
+
+  useEffect(() => {
+    if (!user) {
+      setUnreadMessageCount(0);
+      return;
+    }
+
+    let active = true;
+    const refreshUnreadCount = async () => {
+      const { count, error } = await supabase
+        .from('message_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_id', user.id)
+        .is('read_at', null);
+      if (!active) return;
+      if (error) {
+        setNotificationError(error.message);
+        return;
+      }
+      setUnreadMessageCount(count ?? 0);
+      setNotificationError(null);
+    };
+
+    void refreshUnreadCount();
+    const channel = supabase
+      .channel(`message-notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_notifications', filter: `recipient_id=eq.${user.id}` },
+        (payload) => {
+          if (!active) return;
+          void refreshUnreadCount();
+
+          if (
+            payload.eventType === 'INSERT' &&
+            document.visibilityState === 'hidden' &&
+            notificationPermission === 'granted'
+          ) {
+            const notification = payload.new as { thread_key?: string };
+            const browserNotification = new Notification(t('New message'), {
+              body: t('You have a new message.'),
+              tag: notification.thread_key,
+            });
+            browserNotification.onclick = () => {
+              window.focus();
+              if (notification.thread_key?.startsWith('meetup:')) {
+                navigate({ name: 'messages', meetupId: notification.thread_key.slice('meetup:'.length) });
+              } else if (notification.thread_key?.startsWith('player:')) {
+                navigate({ name: 'messages', playerId: notification.thread_key.slice('player:'.length) });
+              } else {
+                navigate({ name: 'messages' });
+              }
+              browserNotification.close();
+            };
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (active && status === 'CHANNEL_ERROR') {
+          setNotificationError(t('Message notifications could not be connected.'));
+        }
+      });
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshUnreadCount();
+    }, 30_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      void supabase.removeChannel(channel);
+    };
+  }, [navigate, notificationPermission, t, user]);
+
+  async function enableBrowserNotifications() {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+  }
 
   const navLinks = [
     { label: 'Tournaments', to: { name: 'tournaments' } as const },
@@ -114,15 +201,33 @@ export function Navbar() {
             </button>
             {languagePicker}
             {user && (
-              <button
-                type="button"
-                onClick={() => navigate({ name: 'messages' })}
-                aria-label={t('Messages')}
-                title={t('Messages')}
-                className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/5 hover:text-white"
-              >
-                <MessageCircle className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => navigate({ name: 'messages' })}
+                  aria-label={unreadMessageCount ? `${t('Messages')}: ${unreadMessageCount} ${t('unread')}` : t('Messages')}
+                  title={notificationError ?? t('Messages')}
+                  className="relative rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  <MessageCircle className="h-5 w-5" />
+                  {unreadMessageCount > 0 && (
+                    <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-error-500 px-1 text-center text-[10px] font-bold leading-5 text-white">
+                      {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+                    </span>
+                  )}
+                </button>
+                {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && (
+                  <button
+                    type="button"
+                    onClick={() => void enableBrowserNotifications()}
+                    aria-label={notificationPermission === 'denied' ? t('Browser notifications are blocked') : t('Enable browser notifications')}
+                    title={notificationPermission === 'denied' ? t('Allow notifications in your browser settings') : t('Enable browser notifications')}
+                    className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/5 hover:text-brand-300"
+                  >
+                    <Bell className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             )}
             {user ? (
               <div className="relative">
@@ -248,10 +353,26 @@ export function Navbar() {
                   <>
                     <button
                       onClick={() => navigate({ name: 'messages' })}
-                      className="w-full text-left px-4 py-3 text-sm font-medium text-gray-300 hover:bg-white/5 rounded-lg"
+                      aria-label={unreadMessageCount ? `${t('Messages')}: ${unreadMessageCount} ${t('unread')}` : t('Messages')}
+                      className="flex w-full items-center justify-between rounded-lg px-4 py-3 text-left text-sm font-medium text-gray-300 hover:bg-white/5"
                     >
                       {t('Messages')}
+                      {unreadMessageCount > 0 && (
+                        <span className="rounded-full bg-error-500 px-2 py-0.5 text-xs font-bold text-white">
+                          {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+                        </span>
+                      )}
                     </button>
+                    {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && (
+                      <button
+                        type="button"
+                        onClick={() => void enableBrowserNotifications()}
+                        className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm font-medium text-gray-400 hover:bg-white/5 hover:text-white"
+                      >
+                        <Bell className="h-4 w-4" />
+                        {notificationPermission === 'denied' ? t('Allow notifications in your browser settings') : t('Enable browser notifications')}
+                      </button>
+                    )}
                     <button
                       onClick={() => navigate(getDashboardRoute())}
                       className="w-full text-left px-4 py-3 text-sm font-medium text-gray-300 hover:bg-white/5 rounded-lg"
