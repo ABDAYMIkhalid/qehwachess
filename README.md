@@ -11,23 +11,7 @@ Qehwa Chess is a web platform for chess players, clubs and tournament organisers
      A Vercel project exists (see PR #1, Vercel Analytics), but no public
      demo URL was confirmed in the repo at the time of writing.
      Do NOT ship this README with a guessed URL. -->
-**Live demo:** _TODO — add the Vercel deployment URL here_
-
-## Screenshots
-
-_TODO — add screenshots before sharing this README widely._
-
-Suggested shots, in `docs/screenshots/`:
-
-| Home — map of Morocco | Tournaments | Tournament detail — check-in & pairings |
-| --- | --- | --- |
-| _to add_ | _to add_ | _to add_ |
-
-| Organiser dashboard | Mobile check-in (QR scan) |
-| --- | --- |
-| _to add_ | _to add_ |
-
-A 20–30 second GIF of “create a tournament → register → check in by QR → publish a round” is worth more than a paragraph of text.
+**Live demo:** [_TODO — add the Vercel deployment URL here_](https://qehwachess.vercel.app/)
 
 ## Features
 
