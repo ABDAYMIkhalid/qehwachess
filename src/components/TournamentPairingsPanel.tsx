@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Trophy } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, Download, Printer, Trophy } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/Card';
@@ -175,6 +175,15 @@ function formatTieBreak(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+// P1 — CSV escaping, copied from TournamentCheckInPanel.tsx
+// (SHA 1738349d…, escapeCsvCell, lines 31-34). Same rule here so
+// a player name starting with =, +, - or @ cannot become a
+// spreadsheet formula when the standings CSV is opened.
+function escapeCsvCell(value: string): string {
+  const safeValue = /^[\t\r ]*[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safeValue.replace(/"/g, '""')}"`;
+}
+
 function buildSwissPairs(entrants: Entrant[], pairings: Pairing[]) {
   const points = calculatePoints(pairings);
   const tieBreaks = calculateTieBreaks(pairings);
@@ -262,6 +271,10 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // P1 (Scope D): Realtime liveness. `liveError` is separate from
+  // `error` so a dead subscription never overwrites a pairing error.
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
     const { data: roundData, error: roundError } = await supabase
@@ -317,8 +330,45 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
     void loadData()
       .catch((loadError: unknown) => { if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load tournament pairings.'); })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [loadData]);
+
+    // P1 (Scope D): live-reload when anyone changes this
+    // tournament's pairings or rounds (a second organiser entering
+    // results, or a round being created). Debounced: creating a
+    // round inserts 1 round + N pairings, which must cause one
+    // reload, not N+1.
+    // NOTE on filtering: tournament_pairings rows carry round_id,
+    // not tournament_id, so postgres_changes cannot filter them to
+    // this tournament server-side. The channel therefore fires for
+    // pairing changes in ANY tournament and we reload this panel
+    // (cheap: one tournament's rounds+pairings). If the project
+    // grows to many concurrent tournaments, add a round_id filter
+    // per round instead — see "Notes / risks".
+    const scheduleReload = () => {
+      if (!active) return;
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+      reloadTimer.current = setTimeout(() => {
+        if (!active) return;
+        void loadData().catch((loadError: unknown) => {
+          if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load tournament pairings.');
+        });
+      }, 300);
+    };
+    const channel = supabase
+      .channel(`tournament-pairings-${tournamentId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_pairings' }, scheduleReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_rounds' }, scheduleReload)
+      .subscribe((status) => {
+        if (!active) return;
+        if (status === 'SUBSCRIBED') setLiveError(null);
+        else setLiveError(t('Live pairing updates unavailable. Reload the page to see the latest results.'));
+      });
+
+    return () => {
+      active = false;
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadData, tournamentId, t]);
 
   const entrantById = useMemo(() => new Map(entrants.map((entrant) => [entrant.id, entrant])), [entrants]);
   const allPairings = useMemo(() => rounds.flatMap((round) => round.pairings), [rounds]);
@@ -411,6 +461,60 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
     await loadData().catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : 'Could not load tournament pairings.'));
   }
 
+  // P1 — standings export. Columns are exactly the columns of
+  // the on-screen table (Rank, Player, Points, BH, SB, Rating,
+  // W-B), in the same sorted order. Rating is the registration
+  // snapshot (NOTES.md §7: usually 0 / stale — it is shown
+  // because the task asks for it, not because it is a live
+  // rating). For non-managers the panel loads entrants with
+  // rating 0 (see loadData above), so their CSV shows 0 there;
+  // do not "fix" that by fetching ratings for non-managers.
+  function downloadStandingsCsv() {
+    const csvRows = [
+      ['Rank', 'Player', 'Points', 'Buchholz', 'Sonneborn-Berger', 'Rating', 'White', 'Black'],
+      ...standings.map((standing, index) => [
+        String(index + 1),
+        standing.name,
+        formatTieBreak(standing.points),
+        formatTieBreak(standing.buchholz),
+        formatTieBreak(standing.sonnebornBerger),
+        String(standing.rating),
+        String(standing.whiteCount),
+        String(standing.blackCount),
+      ]),
+    ];
+    const csv = `\uFEFF${csvRows.map((csvRow) => csvRow.map(escapeCsvCell).join(',')).join('\r\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `tournament-${tournamentId}-standings.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  // P1 — printable standings. Opens a minimal standalone
+  // document (title + the same standings table) and prints it,
+  // instead of printing the whole app page. Player names are
+  // inserted via textContent-safe escaping: escapeHtml below is
+  // required — do not build this HTML with raw interpolation.
+  function printStandings() {
+    const escapeHtml = (value: string) => value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const rowsHtml = standings.map((standing, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(standing.name)}</td><td>${formatTieBreak(standing.points)}</td><td>${formatTieBreak(standing.buchholz)}</td><td>${formatTieBreak(standing.sonnebornBerger)}</td><td>${standing.rating}</td><td>${standing.whiteCount}-${standing.blackCount}</td></tr>`).join('');
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      setError(t('Could not open the print window. Please allow pop-ups for this site and try again.'));
+      return;
+    }
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(t('Standings'))}</title><style>body{font-family:system-ui,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:6px 8px;text-align:left}th:nth-child(n+3),td:nth-child(n+3){text-align:right}</style></head><body><h1>${escapeHtml(t('Standings'))}</h1><p>${escapeHtml(t('Tie-breaks: Buchholz (BH) is the sum of opponents’ points; Sonneborn-Berger (SB) counts points of opponents beaten, plus half the points of opponents drawn.'))}</p><table><thead><tr><th>${escapeHtml(t('Rank'))}</th><th>${escapeHtml(t('Player'))}</th><th>${escapeHtml(t('Points'))}</th><th>BH</th><th>SB</th><th>${escapeHtml(t('Rating'))}</th><th>${escapeHtml(t('W-B'))}</th></tr></thead><tbody>${rowsHtml}</tbody></table></body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
   return (
     <Card className="p-6 sm:p-8">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -419,6 +523,7 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
       </div>
       {isManager && format === 'swiss' && roundCreationBlockReason && <p className="-mt-2 mb-4 text-sm text-gray-500">{roundCreationBlockReason} {entrants.length < 2 && `${t('Confirmed participants')}: ${entrants.length}/2`}</p>}
       {error && <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg border border-error-500/20 bg-error-500/10 p-3 text-sm text-error-400"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{t(error)}</div>}
+      {liveError && !error && <p role="status" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">{liveError}</p>}
       {loading ? <p className="text-sm text-gray-500">{t('Loading tournament pairings...')}</p> : (
         <>
           {rounds.map((round) => (
@@ -450,11 +555,23 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
           ))}
 
           <div className="border-t border-surface-700 pt-5">
-            <h3 className="mb-3 font-semibold text-white">{t('Standings')}</h3>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-semibold text-white">{t('Standings')}</h3>
+              {standings.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={downloadStandingsCsv}>
+                    <Download className="h-4 w-4" />{t('Download CSV')}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={printStandings}>
+                    <Printer className="h-4 w-4" />{t('Print standings')}
+                  </Button>
+                </div>
+              )}
+            </div>
             <p className="mb-3 text-xs text-gray-500">{t('Tie-breaks: Buchholz (BH) is the sum of opponents’ points; Sonneborn-Berger (SB) counts points of opponents beaten, plus half the points of opponents drawn.')}</p>
             {standings.length === 0 ? <p className="text-sm text-gray-500">{t('Standings appear after the first round is paired.')}</p> : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm"><thead className="text-xs uppercase text-gray-500"><tr><th className="pb-2 pr-4">{t('Rank')}</th><th className="pb-2 pr-4">{t('Player')}</th><th className="pb-2 text-right">{t('Points')}</th><th className="pb-2 text-right">BH</th><th className="pb-2 text-right">SB</th><th className="pb-2 text-right">{t('W-B')}</th></tr></thead><tbody>{standings.map((standing, index) => <tr key={standing.id} className="border-t border-surface-800"><td className="py-2 pr-4 text-gray-500">{index + 1}</td><td className="py-2 pr-4 text-gray-200">{standing.name}</td><td className="py-2 text-right font-semibold text-brand-300">{standing.points}</td><td className="py-2 text-right text-gray-300">{formatTieBreak(standing.buchholz)}</td><td className="py-2 text-right text-gray-300">{formatTieBreak(standing.sonnebornBerger)}</td><td className="py-2 text-right text-gray-500">{standing.whiteCount}-{standing.blackCount}</td></tr>)}</tbody></table>
+                <table className="w-full text-left text-sm"><thead className="text-xs uppercase text-gray-500"><tr><th className="pb-2 pr-4">{t('Rank')}</th><th className="pb-2 pr-4">{t('Player')}</th><th className="pb-2 text-right">{t('Points')}</th><th className="pb-2 text-right">BH</th><th className="pb-2 text-right">SB</th><th className="pb-2 text-right">{t('Rating')}</th><th className="pb-2 text-right">{t('W-B')}</th></tr></thead><tbody>{standings.map((standing, index) => <tr key={standing.id} className="border-t border-surface-800"><td className="py-2 pr-4 text-gray-500">{index + 1}</td><td className="py-2 pr-4 text-gray-200">{standing.name}</td><td className="py-2 text-right font-semibold text-brand-300">{standing.points}</td><td className="py-2 text-right text-gray-300">{formatTieBreak(standing.buchholz)}</td><td className="py-2 text-right text-gray-300">{formatTieBreak(standing.sonnebornBerger)}</td><td className="py-2 text-right text-gray-300">{standing.rating}</td><td className="py-2 text-right text-gray-500">{standing.whiteCount}-{standing.blackCount}</td></tr>)}</tbody></table>
               </div>
             )}
           </div>

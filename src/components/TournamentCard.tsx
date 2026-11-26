@@ -7,6 +7,7 @@ import {
   formatPrice,
   getDaysUntil,
   tournamentFormatLabels,
+  timeControlLabels,
 } from '@/lib/utils';
 import { MapPin, Users, Calendar } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
@@ -39,7 +40,7 @@ export function TournamentCard({ tournament }: { tournament: Tournament }) {
           {/* Format badge */}
           <div className="absolute top-3 left-3">
             <Badge className="bg-surface-950/70 text-brand-300 border-brand-500/30 backdrop-blur-sm">
-              {t(tournamentFormatLabels[tournament.format])}
+              {t(tournamentFormatLabels[tournament.format])}{tournament.time_control_category ? ` · ${t(timeControlLabels[tournament.time_control_category])}` : ''}
             </Badge>
           </div>
 

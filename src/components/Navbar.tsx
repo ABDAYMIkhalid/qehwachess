@@ -76,7 +76,7 @@ export function Navbar() {
           {/* Logo */}
           <Link to={{ name: 'home' }} className="flex items-center gap-2 group">
             <div className="relative w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-all">
-              <Crown className="w-5 h-5 text-white" />
+              <Crown className="w-5 h-5 text-on-dark" />
             </div>
             <div className="flex flex-col leading-none">
               <span className="text-base font-bold text-white tracking-tight">Qehwa Chess</span>
@@ -107,8 +107,9 @@ export function Navbar() {
               type="button"
               onClick={toggleTheme}
               className="flex h-10 w-10 items-center justify-center rounded-lg border border-surface-700 bg-surface-900 text-gray-300 transition-colors hover:border-brand-500/60 hover:text-white"
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              // P1: the toggle label was hardcoded English; it now goes through t().
+              aria-label={theme === 'dark' ? t('Switch to light mode') : t('Switch to dark mode')}
+              title={theme === 'dark' ? t('Switch to light mode') : t('Switch to dark mode')}
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
@@ -133,7 +134,7 @@ export function Navbar() {
                   {profile?.avatar_url ? (
                     <img src={profile.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover" />
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-sm font-bold">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-on-dark text-sm font-bold">
                       {profile?.full_name?.charAt(0) ?? 'U'}
                     </div>
                   )}
@@ -238,8 +239,8 @@ export function Navbar() {
                     type="button"
                     onClick={toggleTheme}
                     className="flex h-10 w-10 items-center justify-center rounded-lg border border-surface-700 bg-surface-900 text-gray-300 transition-colors hover:border-brand-500/60 hover:text-white"
-                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                    title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                    aria-label={theme === 'dark' ? t('Switch to light mode') : t('Switch to dark mode')}
+                    title={theme === 'dark' ? t('Switch to light mode') : t('Switch to dark mode')}
                   >
                     {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                   </button>
