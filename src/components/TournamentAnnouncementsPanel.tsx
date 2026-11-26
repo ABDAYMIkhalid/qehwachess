@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatDate } from '@/lib/utils';
-import type { TournamentAnnouncement } from '@/types';
+import type { Profile, TournamentAnnouncement } from '@/types';
 
 // P1 — organiser announcement to a tournament's confirmed players.
 //
@@ -33,7 +33,7 @@ import type { TournamentAnnouncement } from '@/types';
 // and strangers cannot tell whether announcements exist.
 
 interface AnnouncementRow extends TournamentAnnouncement {
-  sender: { full_name: string; avatar_url: string | null } | null;
+  sender: Pick<Profile, 'id' | 'full_name' | 'avatar_url'> | null;
 }
 
 export function TournamentAnnouncementsPanel({
@@ -59,7 +59,7 @@ export function TournamentAnnouncementsPanel({
   const loadAnnouncements = useCallback(async () => {
     const { data, error: queryError } = await supabase
       .from('tournament_announcements')
-      .select('id, tournament_id, sender_id, body, created_at, sender:profiles!tournament_announcements_sender_id_fkey(full_name, avatar_url)')
+      .select('id, tournament_id, sender_id, body, created_at, sender:profiles!tournament_announcements_sender_id_fkey(id, full_name, avatar_url)')
       .eq('tournament_id', tournamentId)
       .order('created_at', { ascending: false })
       .limit(50);
