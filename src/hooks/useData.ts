@@ -75,11 +75,16 @@ export function useTournament(id: string | undefined) {
       setTournament(data as TournamentWithRelations | null);
 
       if (data) {
+        // P0 fix: count CONFIRMED registrations only.
+        // The old code counted every non-cancelled registration
+        // (including waitlisted / pending), which inflated
+        // "spots taken" and made a full tournament look fuller
+        // than it was. See PATCH-TournamentDetail.md.
         const { count } = await supabase
           .from('registrations')
           .select('id', { count: 'exact', head: true })
           .eq('tournament_id', id)
-          .neq('status', 'cancelled');
+          .eq('status', 'confirmed');
         setRegistrationCount(count ?? 0);
       }
 
@@ -162,7 +167,7 @@ export function useCityTournaments(id: string | undefined) {
 
       const { data: tData } = await supabase
         .from('tournaments')
-        .select('*, city:cities(*), club:clubs(*)')
+        .select('*, city:cities(*)')
         .eq('city_id', id)
         .eq('status', 'published')
         .order('start_date', { ascending: true });
@@ -180,4 +185,39 @@ export function useCityTournaments(id: string | undefined) {
   }, [id]);
 
   return { city, tournaments, clubs, loading };
+}
+
+// P0 — real player count for the home page.
+// Replaces the hardcoded `players: 1250` that used to live in
+// HomePage.tsx. This counts real rows in `profiles` with role
+// 'player' (head-only count, no rows are fetched).
+// Returns null while loading / on error, so the UI can show
+// an ellipsis instead of inventing a number.
+export function usePlayerCount() {
+  const [playerCount, setPlayerCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { count, error } = await supabase
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'player');
+      if (!active) return;
+      if (error) {
+        // Do not invent a number on failure — leave it null
+        // and let the caller render '…'.
+        setPlayerCount(null);
+      } else {
+        setPlayerCount(count ?? 0);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return { playerCount, loading };
 }
