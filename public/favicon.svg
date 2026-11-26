@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Qehwa Chess">
+  <!-- P1 (Scope F): real favicon for Qehwa Chess. Dark green tile (brand-700)
+       with a light queen mark, matching the ♛/♞ motif used on the homepage. -->
+  <rect width="64" height="64" rx="14" fill="#193a2f"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="12.5" fill="none" stroke="#5b8d72" stroke-opacity="0.45" stroke-width="1.5"/>
+  <text x="32" y="45" font-family="Georgia, 'Times New Roman', serif" font-size="38" font-weight="700" fill="#f2f3ee" text-anchor="middle">&#9819;</text>
+</svg>
