@@ -2,12 +2,66 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!--
+      P1 (Scope F): set the theme before first paint so stored-light /
+      prefers-light users never flash the dark theme. Must stay in sync
+      with ThemeContext: same storage key ('qehwa-theme'), same
+      data-theme values ('dark' | 'light'), same class names
+      ('theme-light' / 'theme-dark'). Runs before React mounts.
+    -->
+    <script>
+      try {
+        var storedTheme = window.localStorage.getItem('qehwa-theme');
+        var theme =
+          storedTheme === 'dark' || storedTheme === 'light'
+            ? storedTheme
+            : window.matchMedia('(prefers-color-scheme: light)').matches
+              ? 'light'
+              : 'dark';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.toggle('theme-light', theme === 'light');
+        document.documentElement.classList.toggle('theme-dark', theme === 'dark');
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Qehwa Chess — find local chess meetups, clubs and tournaments across Morocco. Find your people. Play over the board."
+    />
+    <meta name="color-scheme" content="dark light" />
+    <!-- P1: theme-color follows the OS preference until React/ThemeContext takes over. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f6f2" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d100e" />
     <title>Qehwa Chess</title>
-    <meta property="og:image" content="https://bolt.new/static/og_default.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Qehwa Chess" />
+    <meta property="og:title" content="Qehwa Chess" />
+    <meta
+      property="og:description"
+      content="Find local chess meetups, clubs and tournaments across Morocco. Find your people. Play over the board."
+    />
+    <meta property="og:url" content="https://qehwachess.vercel.app/" />
+    <!--
+      TODO (P1): /og.png does NOT exist yet — https://qehwachess.vercel.app/og.png
+      returned 404 when checked 2026-11-26. Ship a real 1200×630 og image at
+      public/og.png, then keep this URL. Until then social previews have no
+      image. Do NOT point this back at the bolt.new image.
+    -->
+    <meta property="og:image" content="https://qehwachess.vercel.app/og.png" />
+    <meta property="og:image:alt" content="Qehwa Chess — chess across Morocco" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://bolt.new/static/og_default.png" />
+    <meta name="twitter:title" content="Qehwa Chess" />
+    <meta
+      name="twitter:description"
+      content="Find local chess meetups, clubs and tournaments across Morocco. Find your people. Play over the board."
+    />
+    <meta name="twitter:image" content="https://qehwachess.vercel.app/og.png" />
+    <meta name="twitter:image:alt" content="Qehwa Chess — chess across Morocco" />
   </head>
   <body>
     <div id="root"></div>
