@@ -11,7 +11,7 @@ import { useLanguage } from '@/context/LanguageContext';
 export function ClubsPage() {
   const { t } = useLanguage();
   const [page, setPage] = useState(1);
-  const { clubs, loading, error, totalCount, totalPages, hasNextPage, hasPreviousPage } =
+  const { clubs, loading, error, totalPages, hasNextPage, hasPreviousPage } =
     useClubs({ page, pageSize: 12 });
 
   return (
