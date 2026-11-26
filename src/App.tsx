@@ -86,7 +86,9 @@ function AppShell() {
     <>
       <AppRoutes />
       {!hasChosenLanguage && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-surface-950/90 p-4 backdrop-blur-sm">
+        // P1: language-modal-scrim is a per-theme dark scrim (see index.css).
+        // The old bg-surface-950/90 became a near-white veil in light mode.
+        <div className="language-modal-scrim fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-surface-700 bg-surface-900 p-8 shadow-2xl">
             <div className="text-center">
               <h1 className="text-2xl font-bold text-white">Qehwa Chess</h1>
@@ -102,7 +104,7 @@ function AppShell() {
                   className={`rounded-xl border px-4 py-3 text-lg font-medium transition-colors ${
                     pendingLanguage === option
                       ? 'border-brand-400 bg-brand-500/10 text-white'
-                      : 'border-surface-700 bg-surface-800 text-gray-300 hover:border-surface-500'
+                      : 'border-surface-700 bg-surface-800 text-gray-300 hover:border-brand-500/60'
                   }`}
                 >
                   {languageNames[option]}

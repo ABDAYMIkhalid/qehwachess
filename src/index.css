@@ -91,6 +91,15 @@
   --card-highlight: rgba(17, 24, 39, 0.02);
 }
 
+/* P1: native controls, scrollbars and the UA stylesheet follow the app theme. */
+html {
+  color-scheme: dark;
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -193,9 +202,39 @@ html[data-theme='dark'] .home-hero-wash {
   html[data-theme='light'] .text-gray-300 { color: var(--text-secondary) !important; }
   html[data-theme='light'] .text-gray-400 { color: var(--text-secondary) !important; }
   html[data-theme='light'] .text-gray-500 { color: var(--text-muted) !important; }
+  /* P1: white text that sits on a fill which stays dark in light mode
+     (primary/danger buttons, count badges). Text on dark gradients
+     instead uses the .text-on-dark utility — see Navbar / Button. */
+  html[data-theme='light'] .bg-error-500.text-white,
+  html[data-theme='light'] .bg-error-500\/90.text-white { color: #fff !important; }
+  /* P1: pale brand-200/300/400 text is unreadable on a light page;
+     all of it becomes the dark brand green. */
+  html[data-theme='light'] .text-brand-200,
   html[data-theme='light'] .text-brand-300,
   html[data-theme='light'] .text-brand-400,
   html[data-theme='light'] .text-brand-500 { color: var(--brand-500) !important; }
+  /* P1: surface-600 is a near-white grey-green in light mode — invisible
+     as icon/arrow text. surface-950 text only ever sits on the gold
+     accent badge, where it must stay dark. */
+  html[data-theme='light'] .text-surface-600 { color: var(--text-muted) !important; }
+  html[data-theme='light'] .text-surface-950 { color: #20180a !important; }
+  /* P1: fixed-hex error reds are too light on white. */
+  html[data-theme='light'] .text-error-400,
+  html[data-theme='light'] .text-error-500 { color: #dc2626 !important; }
+  html[data-theme='light'] .placeholder-gray-500::placeholder { color: var(--text-muted) !important; }
+  /* P1: variant selectors are NOT covered by the plain-class rules
+     above, so without these, hover/group-hover text turned white or
+     pale green on a light background (invisible). */
+  html[data-theme='light'] .hover\:text-white:hover { color: var(--text-primary) !important; }
+  html[data-theme='light'] .hover\:text-brand-200:hover,
+  html[data-theme='light'] .group:hover .group-hover\:text-brand-200,
+  html[data-theme='light'] .group:hover .group-hover\:text-brand-300 { color: var(--brand-500) !important; }
+  /* P1: a white hover wash is invisible on a light page; use a surface tint. */
+  html[data-theme='light'] .hover\:bg-white\/5:hover { background-color: var(--surface-800) !important; }
+  /* P1: the language-picker scrim. bg-surface-950/90 would be a
+     near-white veil in light mode, so the white card has its own
+     dark scrim per theme (see App.tsx). */
+  html[data-theme='light'] .language-modal-scrim { background-color: rgba(15, 23, 42, 0.55) !important; }
 
   html[data-theme='light'] .border-surface-700,
   html[data-theme='light'] .border-surface-600,
@@ -239,6 +278,20 @@ html[data-theme='dark'] .home-hero-wash {
     background: rgba(17, 17, 17, 0.72);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* P1: text that sits on a fill which is dark in BOTH themes
+     (brand gradient logo / avatar, primary + danger buttons).
+     Unlike .text-white it is never remapped by the light-theme
+     overrides in @layer base. */
+  .text-on-dark {
+    color: #fff;
+  }
+
+  /* P1: language-picker scrim (App.tsx). Dark default; the light
+     value lives in the html[data-theme='light'] block in @layer base. */
+  .language-modal-scrim {
+    background-color: rgba(13, 16, 14, 0.9);
   }
 
   .gradient-text {
