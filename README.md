@@ -11,7 +11,7 @@ Qehwa Chess is a web platform for chess players, clubs and tournament organisers
      A Vercel project exists (see PR #1, Vercel Analytics), but no public
      demo URL was confirmed in the repo at the time of writing.
      Do NOT ship this README with a guessed URL. -->
-**Live demo:** [_TODO — add the Vercel deployment URL here_](https://qehwachess.vercel.app/)
+**Live demo:** [](https://qehwachess.vercel.app/)
 
 ## Features
 
