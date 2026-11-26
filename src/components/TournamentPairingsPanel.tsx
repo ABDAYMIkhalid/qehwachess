@@ -5,6 +5,21 @@ import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
+// P0 — Swiss only.
+// This panel deliberately supports Swiss tournaments only.
+// Round-robin / knockout / simultaneous are offered in the
+// creation form today, but there is no generator for them —
+// see NOTES.md for the format / time-control split that must
+// land before those formats are offered again. Do not add
+// a generator for them in this file without that split.
+//
+// Board numbers are DISPLAY-ONLY in this file. The
+// `tournament_pairings` table has no board_number column, so
+// boards are numbered 1, 2, 3… in the order pairings are
+// stored for a round. If persistent board numbers are ever
+// needed (e.g. after re-pairing), add a board_number column
+// in a migration first — do not try to insert one here.
+
 type PairingResult = 'pending' | 'white_win' | 'black_win' | 'draw' | 'bye';
 
 interface Pairing {
@@ -36,6 +51,10 @@ interface RegistrationRecord {
 
 interface Standing extends Entrant {
   points: number;
+  buchholz: number;
+  sonnebornBerger: number;
+  whiteCount: number;
+  blackCount: number;
 }
 
 function calculatePoints(pairings: Pairing[]) {
@@ -55,8 +74,110 @@ function calculatePoints(pairings: Pairing[]) {
   return points;
 }
 
+type Colour = 'white' | 'black';
+
+interface PlayerTieBreak {
+  buchholz: number;
+  sonnebornBerger: number;
+  whiteCount: number;
+  blackCount: number;
+  lastColour: Colour | null;
+}
+
+/**
+ * Buchholz = sum of the current points of all opponents a player
+ * has actually played (byes excluded, pending games count the
+ * opponent's current points — so mid-tournament values are
+ * provisional and will move as results come in).
+ *
+ * Sonneborn-Berger = sum of the points of opponents a player
+ * beat, plus half the points of opponents they drew with.
+ * Losses contribute 0.
+ *
+ * Colour counts ignore byes: a bye is not a game with White.
+ */
+function calculateTieBreaks(pairings: Pairing[]) {
+  const points = calculatePoints(pairings);
+  const result = new Map<string, PlayerTieBreak>();
+
+  const ensure = (id: string): PlayerTieBreak => {
+    const existing = result.get(id);
+    if (existing) return existing;
+    const fresh: PlayerTieBreak = {
+      buchholz: 0,
+      sonnebornBerger: 0,
+      whiteCount: 0,
+      blackCount: 0,
+      lastColour: null,
+    };
+    result.set(id, fresh);
+    return fresh;
+  };
+
+  // Opponents, in the order the games were played, so
+  // lastColour is the colour of the most recent game.
+  const opponents = new Map<
+    string,
+    Array<{ opponentId: string; outcome: 'win' | 'loss' | 'draw' | 'pending' }>
+  >();
+
+  for (const pairing of pairings) {
+    if (!pairing.black_player_id) {
+      // Bye: 1 point, no opponent, no colour.
+      ensure(pairing.white_player_id);
+      continue;
+    }
+    const white = ensure(pairing.white_player_id);
+    const black = ensure(pairing.black_player_id);
+    white.whiteCount += 1;
+    white.lastColour = 'white';
+    black.blackCount += 1;
+    black.lastColour = 'black';
+
+    const whiteOutcome: 'win' | 'loss' | 'draw' =
+      pairing.result === 'white_win' ? 'win' : pairing.result === 'black_win' ? 'loss' : 'draw';
+    const blackOutcome: 'win' | 'loss' | 'draw' =
+      pairing.result === 'black_win' ? 'win' : pairing.result === 'white_win' ? 'loss' : 'draw';
+
+    // Pending games contribute the opponent's points to
+    // Buchholz, but 0 to Sonneborn-Berger until a result is
+    // entered — that is why 'pending' is kept as its own
+    // outcome below instead of being treated as a draw.
+    const effectiveWhiteOutcome = pairing.result === 'pending' ? 'pending' : whiteOutcome;
+    const effectiveBlackOutcome = pairing.result === 'pending' ? 'pending' : blackOutcome;
+
+    if (!opponents.has(pairing.white_player_id)) opponents.set(pairing.white_player_id, []);
+    if (!opponents.has(pairing.black_player_id)) opponents.set(pairing.black_player_id, []);
+    opponents.get(pairing.white_player_id)!.push({
+      opponentId: pairing.black_player_id,
+      outcome: effectiveWhiteOutcome,
+    });
+    opponents.get(pairing.black_player_id)!.push({
+      opponentId: pairing.white_player_id,
+      outcome: effectiveBlackOutcome,
+    });
+  }
+
+  for (const [playerId, list] of opponents) {
+    const entry = ensure(playerId);
+    for (const { opponentId, outcome } of list) {
+      const opponentPoints = points.get(opponentId) ?? 0;
+      entry.buchholz += opponentPoints;
+      if (outcome === 'win') entry.sonnebornBerger += opponentPoints;
+      else if (outcome === 'draw') entry.sonnebornBerger += opponentPoints / 2;
+    }
+  }
+
+  return result;
+}
+
+function formatTieBreak(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function buildSwissPairs(entrants: Entrant[], pairings: Pairing[]) {
   const points = calculatePoints(pairings);
+  const tieBreaks = calculateTieBreaks(pairings);
   const ranked = [...entrants].sort((a, b) =>
     (points.get(b.id) ?? 0) - (points.get(a.id) ?? 0)
     || b.rating - a.rating
@@ -105,7 +226,31 @@ function buildSwissPairs(entrants: Entrant[], pairings: Pairing[]) {
       return { error: 'Swiss pairings cannot avoid a repeat opponent for this round.', pairings: [] };
     }
     const [opponent] = unpaired.splice(candidates[0].index, 1);
-    nextRound.push({ white_player_id: white.id, black_player_id: opponent.id, result: 'pending' });
+
+    // Colour balancing (P0): prefer White for the player who
+    // has had White fewer times, and avoid giving the same
+    // player White two rounds in a row when the other player
+    // just had Black. This is a simple, deterministic rule —
+    // not a full FIDE Dutch system — and it is documented as
+    // such in NOTES.md. Pairing avoidance above is unchanged:
+    // the pair itself is chosen first, colours second.
+    let whiteId = white.id;
+    let blackId = opponent.id;
+    const whiteStats = tieBreaks.get(white.id);
+    const blackStats = tieBreaks.get(opponent.id);
+    const whiteWhites = whiteStats?.whiteCount ?? 0;
+    const blackWhites = blackStats?.whiteCount ?? 0;
+    if (
+      blackWhites < whiteWhites ||
+      (blackWhites === whiteWhites &&
+        whiteStats?.lastColour === 'white' &&
+        blackStats?.lastColour === 'black')
+    ) {
+      whiteId = opponent.id;
+      blackId = white.id;
+    }
+
+    nextRound.push({ white_player_id: whiteId, black_player_id: blackId, result: 'pending' });
   }
   return { error: null, pairings: nextRound };
 }
@@ -178,13 +323,29 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
   const entrantById = useMemo(() => new Map(entrants.map((entrant) => [entrant.id, entrant])), [entrants]);
   const allPairings = useMemo(() => rounds.flatMap((round) => round.pairings), [rounds]);
   const points = useMemo(() => calculatePoints(allPairings), [allPairings]);
+  const tieBreaks = useMemo(() => calculateTieBreaks(allPairings), [allPairings]);
   const standings = useMemo<Standing[]>(() => {
     const ids = isManager ? entrants.map((entrant) => entrant.id) : [...new Set(allPairings.flatMap((pairing) => [pairing.white_player_id, pairing.black_player_id].filter((id): id is string => Boolean(id))))];
     return ids.map((id) => {
       const entrant = entrantById.get(id);
-      return { id, name: entrant?.name ?? t('Player'), rating: entrant?.rating ?? 0, points: points.get(id) ?? 0 };
-    }).sort((a, b) => b.points - a.points || b.rating - a.rating || a.name.localeCompare(b.name));
-  }, [allPairings, entrantById, entrants, isManager, points, t]);
+      const tb = tieBreaks.get(id);
+      return {
+        id,
+        name: entrant?.name ?? t('Player'),
+        rating: entrant?.rating ?? 0,
+        points: points.get(id) ?? 0,
+        buchholz: tb?.buchholz ?? 0,
+        sonnebornBerger: tb?.sonnebornBerger ?? 0,
+        whiteCount: tb?.whiteCount ?? 0,
+        blackCount: tb?.blackCount ?? 0,
+      };
+    }).sort((a, b) =>
+      b.points - a.points
+      || b.buchholz - a.buchholz
+      || b.sonnebornBerger - a.sonnebornBerger
+      || b.rating - a.rating
+      || a.name.localeCompare(b.name));
+  }, [allPairings, entrantById, entrants, isManager, points, tieBreaks, t]);
   const lastRound = rounds[rounds.length - 1];
   const roundCreationBlockReason = loading
     ? null
@@ -253,7 +414,7 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
   return (
     <Card className="p-6 sm:p-8">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg border border-brand-500/20 bg-brand-500/10"><Trophy className="h-5 w-5 text-brand-400" /></div><div><h2 className="text-xl font-bold text-white">{t('Rounds and Standings')}</h2><p className="text-sm text-gray-500">{format === 'swiss' ? t('Basic Swiss pairings; organizers confirm results.') : t('Automatic pairings are currently available for Swiss tournaments.')}</p></div></div>
+        <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg border border-brand-500/20 bg-brand-500/10"><Trophy className="h-5 w-5 text-brand-400" /></div><div><h2 className="text-xl font-bold text-white">{t('Rounds and Standings')}</h2><p className="text-sm text-gray-500">{format === 'swiss' ? t('Swiss pairings with Buchholz and Sonneborn-Berger tie-breaks; organizers confirm results.') : t('Automatic pairings are currently available for Swiss tournaments only.')}</p></div></div>
         {isManager && format === 'swiss' && <Button onClick={() => void createNextRound()} disabled={saving || entrants.length < 2 || (rounds.length > 0 && rounds[rounds.length - 1].status !== 'completed')}>{saving ? t('Creating round...') : t('Create next round')}</Button>}
       </div>
       {isManager && format === 'swiss' && roundCreationBlockReason && <p className="-mt-2 mb-4 text-sm text-gray-500">{roundCreationBlockReason} {entrants.length < 2 && `${t('Confirmed participants')}: ${entrants.length}/2`}</p>}
@@ -264,11 +425,17 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
             <section key={round.id} className="mb-6">
               <div className="mb-3 flex items-center justify-between"><h3 className="font-semibold text-white">{t('Round')} {round.round_number}</h3><span className={`text-xs ${round.status === 'completed' ? 'text-success-300' : 'text-amber-300'}`}>{t(round.status)}</span></div>
               <div className="space-y-2">
-                {round.pairings.map((pairing) => {
+                {round.pairings.map((pairing, pairingIndex) => {
                   const white = entrantById.get(pairing.white_player_id)?.name ?? t('Player');
                   const black = pairing.black_player_id ? entrantById.get(pairing.black_player_id)?.name ?? t('Player') : t('Bye');
+                  // Board numbers are display-only, numbered in
+                  // pairing order within the round. Byes get no board.
+                  const boardNumber = pairing.black_player_id
+                    ? round.pairings.slice(0, pairingIndex).filter((p) => p.black_player_id).length + 1
+                    : null;
                   return (
-                    <div key={pairing.id} className="grid gap-2 rounded-lg bg-surface-800/70 p-3 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-center">
+                    <div key={pairing.id} className="grid gap-2 rounded-lg bg-surface-800/70 p-3 sm:grid-cols-[auto_1fr_auto_1fr_auto] sm:items-center">
+                      <span className="text-xs font-semibold text-gray-500">{boardNumber !== null ? `${t('Board')} ${boardNumber}` : t('Bye')}</span>
                       <span className="truncate text-sm text-white">{white}</span><span className="text-center text-xs text-gray-500">{pairing.result === 'bye' ? t('Bye') : '—'}</span><span className="truncate text-sm text-white">{black}</span>
                       {isManager && pairing.result !== 'bye' ? (
                         <select aria-label={t('Pairing result')} value={pairing.result} onChange={(event) => void saveResult(round, pairing, event.target.value as PairingResult)} className="rounded-lg border border-surface-700 bg-surface-900 px-2 py-1.5 text-sm text-white">
@@ -284,9 +451,10 @@ export function TournamentPairingsPanel({ tournamentId, isManager, format }: { t
 
           <div className="border-t border-surface-700 pt-5">
             <h3 className="mb-3 font-semibold text-white">{t('Standings')}</h3>
+            <p className="mb-3 text-xs text-gray-500">{t('Tie-breaks: Buchholz (BH) is the sum of opponents’ points; Sonneborn-Berger (SB) counts points of opponents beaten, plus half the points of opponents drawn.')}</p>
             {standings.length === 0 ? <p className="text-sm text-gray-500">{t('Standings appear after the first round is paired.')}</p> : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm"><thead className="text-xs uppercase text-gray-500"><tr><th className="pb-2 pr-4">{t('Rank')}</th><th className="pb-2 pr-4">{t('Player')}</th><th className="pb-2 text-right">{t('Points')}</th></tr></thead><tbody>{standings.map((standing, index) => <tr key={standing.id} className="border-t border-surface-800"><td className="py-2 pr-4 text-gray-500">{index + 1}</td><td className="py-2 pr-4 text-gray-200">{standing.name}</td><td className="py-2 text-right font-semibold text-brand-300">{standing.points}</td></tr>)}</tbody></table>
+                <table className="w-full text-left text-sm"><thead className="text-xs uppercase text-gray-500"><tr><th className="pb-2 pr-4">{t('Rank')}</th><th className="pb-2 pr-4">{t('Player')}</th><th className="pb-2 text-right">{t('Points')}</th><th className="pb-2 text-right">BH</th><th className="pb-2 text-right">SB</th><th className="pb-2 text-right">{t('W-B')}</th></tr></thead><tbody>{standings.map((standing, index) => <tr key={standing.id} className="border-t border-surface-800"><td className="py-2 pr-4 text-gray-500">{index + 1}</td><td className="py-2 pr-4 text-gray-200">{standing.name}</td><td className="py-2 text-right font-semibold text-brand-300">{standing.points}</td><td className="py-2 text-right text-gray-300">{formatTieBreak(standing.buchholz)}</td><td className="py-2 text-right text-gray-300">{formatTieBreak(standing.sonnebornBerger)}</td><td className="py-2 text-right text-gray-500">{standing.whiteCount}-{standing.blackCount}</td></tr>)}</tbody></table>
               </div>
             )}
           </div>
