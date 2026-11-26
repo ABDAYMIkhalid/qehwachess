@@ -99,23 +99,57 @@ export function TournamentDetailPage({ id }: { id: string }) {
     setRegistering(true);
     setError(null);
 
-    const { data, error: insertError } = await supabase
-      .from('registrations')
-      .insert({
-        tournament_id: id,
-        player_id: user!.id,
-        status: isFull ? 'waitlisted' : 'confirmed',
-      })
-      .select()
-      .single();
+    // P0: capacity is decided on the server, atomically.
+    // register_for_tournament() locks the tournament row, counts
+    // CONFIRMED registrations only, and returns 'confirmed' or
+    // 'waitlisted'. The client-side isFull check above is only
+    // used for the button label — never for the decision.
+    const { data, error: rpcError } = await supabase.rpc(
+      'register_for_tournament',
+      { p_tournament_id: id }
+    );
 
-    if (insertError) {
-      setError(insertError.code === '23505' ? t('You are already registered for this tournament.') : insertError.message);
-    } else {
-      setRegistration(data as Registration);
-      setRegistrationCount(registrationCount + 1);
-      setSuccess(isFull ? t("You've been added to the waitlist!") : t("You're registered! See you at the tournament."));
+    if (rpcError) {
+      // 'Tournament is full' comes from the capacity trigger if
+      // a race slipped through; the other messages come from
+      // the RPC itself ('Registration is closed', ...).
+      setError(
+        rpcError.message === 'Tournament is full'
+          ? t('This tournament is full. You can join the waitlist from the tournament page.')
+          : rpcError.message
+      );
+      setRegistering(false);
+      return;
     }
+
+    const status = (data as { registration_id: string; status: string } | null)?.status;
+    const registrationId = (data as { registration_id: string; status: string } | null)?.registration_id;
+
+    // Re-fetch the full row: the RPC returns only id + status,
+    // and the QR code needs check_in_token.
+    const { data: registrationRow, error: fetchError } = await supabase
+      .from('registrations')
+      .select('*')
+      .eq('id', registrationId)
+      .maybeSingle();
+
+    if (fetchError || !registrationRow) {
+      setError(fetchError?.message ?? t('Your registration was saved, but the page could not reload it. Please refresh.'));
+      setRegistering(false);
+      return;
+    }
+
+    setRegistration(registrationRow as Registration);
+    // Only a confirmed registration takes a spot. A waitlisted
+    // player must NOT increment the counter (the old code did).
+    if (status === 'confirmed') {
+      setRegistrationCount(registrationCount + 1);
+    }
+    setSuccess(
+      status === 'waitlisted'
+        ? t("You've been added to the waitlist!")
+        : t("You're registered! See you at the tournament.")
+    );
     setRegistering(false);
   }
 
@@ -123,17 +157,37 @@ export function TournamentDetailPage({ id }: { id: string }) {
     if (!registration) return;
     setRegistering(true);
     setError(null);
-    const { error: updateError } = await supabase
-      .from('registrations')
-      .update({ status: 'cancelled' })
-      .eq('id', registration.id);
-    if (updateError) {
-      setError(updateError.message);
-    } else {
-      setRegistration({ ...registration, status: 'cancelled' });
-      setRegistrationCount(Math.max(0, registrationCount - 1));
-      setSuccess(t('Your registration has been cancelled.'));
+
+    // P0: cancel via the RPC, not a direct update. The RPC
+    // cancels AND promotes the earliest waitlisted player in
+    // the same transaction. A direct .update({ status:
+    // 'cancelled' }) would cancel the row but promote nobody.
+    const { data, error: rpcError } = await supabase.rpc(
+      'cancel_tournament_registration',
+      { p_registration_id: registration.id }
+    );
+
+    if (rpcError) {
+      setError(rpcError.message);
+      setRegistering(false);
+      return;
     }
+
+    const wasConfirmed = registration.status === 'confirmed';
+    const promotedId = (data as { promoted_registration_id: string | null } | null)
+      ?.promoted_registration_id;
+
+    setRegistration({ ...registration, status: 'cancelled' });
+    // Only a confirmed cancellation frees a spot.
+    if (wasConfirmed) {
+      setRegistrationCount(Math.max(0, registrationCount - 1));
+    }
+    setSuccess(
+      promotedId
+        ? t('Your registration has been cancelled.') + ' ' +
+          t('A spot opened up and the next player on the waitlist was promoted.')
+        : t('Your registration has been cancelled.')
+    );
     setRegistering(false);
   }
 

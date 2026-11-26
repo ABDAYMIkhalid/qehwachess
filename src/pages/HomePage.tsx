@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { CircleMarker, MapContainer, TileLayer, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Link } from '@/context/RouterContext';
-import { useTournaments, useCities } from '@/hooks/useData';
+import { useTournaments, useCities, usePlayerCount } from '@/hooks/useData';
 import { TournamentCard } from '@/components/TournamentCard';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -26,6 +26,11 @@ export function HomePage() {
   const translate = t;
   const { tournaments, loading } = useTournaments();
   const { cities } = useCities();
+  // P0 fix: the old code hardcoded `players: 1250` here.
+  // The player count now comes from the database (profiles
+  // with role 'player'). It is null while loading / on error,
+  // and the UI renders '…' instead of inventing a number.
+  const { playerCount } = usePlayerCount();
 
   const featured = useMemo(
     () => tournaments.filter((t) => t.featured).slice(0, 4),
@@ -40,13 +45,16 @@ export function HomePage() {
     [tournaments]
   );
 
+  // P0 fix: exact counts only, no '+' suffix and no invented
+  // numbers. Tournaments / cities were already real counts;
+  // players is now a real count too (null = not loaded yet).
   const stats = useMemo(
     () => ({
       tournaments: tournaments.length,
       cities: cities.length,
-      players: 1250,
+      players: playerCount,
     }),
-    [tournaments, cities]
+    [tournaments, cities, playerCount]
   );
 
   return (
@@ -109,9 +117,9 @@ export function HomePage() {
 
           <div className="mt-12 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
             {[
-              { icon: Trophy, label: t('Tournaments'), value: stats.tournaments + '+' },
-              { icon: MapPin, label: t('Cities'), value: stats.cities + '+' },
-              { icon: Users, label: t('Players'), value: stats.players + '+' },
+              { icon: Trophy, label: t('Tournaments'), value: String(stats.tournaments) },
+              { icon: MapPin, label: t('Cities'), value: String(stats.cities) },
+              { icon: Users, label: t('Players'), value: stats.players === null ? '…' : String(stats.players) },
             ].map((stat) => (
               <div key={stat.label} className="flex items-center gap-2 text-sm text-gray-400">
                 <stat.icon className="h-4 w-4 text-brand-600" />

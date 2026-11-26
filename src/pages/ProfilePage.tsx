@@ -225,7 +225,7 @@ export function ProfilePage() {
 
             <div className="border-t border-surface-700 pt-5">
               <h2 className="mb-1 text-lg font-semibold text-white">{t('Chess accounts')}</h2>
-              <p className="mb-4 text-xs text-gray-500">{t('These usernames are profile links only; ratings are not verified or synchronized.')}</p>
+              <p className="mb-4 text-xs text-gray-500">{t('These usernames are profile links only — they are unverified, and anyone can type any username. Ratings are not verified or synchronized.')}</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className={labelClass}>{t('Player username')}</label>
@@ -245,15 +245,24 @@ export function ProfilePage() {
                   <input value={fideId} onChange={(e) => setFideId(e.target.value)} maxLength={20} className={inputClass} placeholder="e.g. 1503014" />
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
                 {lichessUsername.trim() && (
-                  <a href={`https://lichess.org/@/${encodeURIComponent(lichessUsername.trim().replace(/^@/, ''))}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Lichess ↗</a>
+                  <span className="flex items-center gap-1.5">
+                    <a href={`https://lichess.org/@/${encodeURIComponent(lichessUsername.trim().replace(/^@/, ''))}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Lichess ↗</a>
+                    <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('Unverified')}</span>
+                  </span>
                 )}
                 {chesscomUsername.trim() && (
-                  <a href={`https://www.chess.com/member/${encodeURIComponent(chesscomUsername.trim().replace(/^@/, ''))}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Chess.com ↗</a>
+                  <span className="flex items-center gap-1.5">
+                    <a href={`https://www.chess.com/member/${encodeURIComponent(chesscomUsername.trim().replace(/^@/, ''))}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Chess.com ↗</a>
+                    <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('Unverified')}</span>
+                  </span>
                 )}
                 {fideId.trim() && (
-                  <a href={`https://ratings.fide.com/profile/${encodeURIComponent(fideId.trim())}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">FIDE ↗</a>
+                  <span className="flex items-center gap-1.5">
+                    <a href={`https://ratings.fide.com/profile/${encodeURIComponent(fideId.trim())}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">FIDE ↗</a>
+                    <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('Unverified')}</span>
+                  </span>
                 )}
               </div>
             </div>

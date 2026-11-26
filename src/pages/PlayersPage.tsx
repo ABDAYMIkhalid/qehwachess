@@ -267,14 +267,32 @@ export function PlayersPage() {
                   <p className="mt-2 flex items-center gap-1.5 text-xs text-success-300"><span className="h-2 w-2 rounded-full bg-success-400" />{t('Open to play')} · {t(player.availability.time_control)}</p>
                 )}
                 {player.bio && <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-gray-400">{player.bio}</p>}
-                <div className="mt-4 flex flex-wrap gap-3 border-t border-surface-700 pt-4 text-sm">
-                  {player.lichess_username && <a href={`https://lichess.org/@/${encodeURIComponent(player.lichess_username)}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Lichess ↗</a>}
-                  {player.chesscom_username && <a href={`https://www.chess.com/member/${encodeURIComponent(player.chesscom_username)}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Chess.com ↗</a>}
-                  {player.fide_id && <a href={`https://ratings.fide.com/profile/${encodeURIComponent(player.fide_id)}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">FIDE ↗</a>}
+                <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-surface-700 pt-4 text-sm">
+                  {player.lichess_username && (
+                    <span className="flex items-center gap-1.5">
+                      <a href={`https://lichess.org/@/${encodeURIComponent(player.lichess_username)}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Lichess ↗</a>
+                      <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('Unverified')}</span>
+                    </span>
+                  )}
+                  {player.chesscom_username && (
+                    <span className="flex items-center gap-1.5">
+                      <a href={`https://www.chess.com/member/${encodeURIComponent(player.chesscom_username)}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">Chess.com ↗</a>
+                      <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('Unverified')}</span>
+                    </span>
+                  )}
+                  {player.fide_id && (
+                    <span className="flex items-center gap-1.5">
+                      <a href={`https://ratings.fide.com/profile/${encodeURIComponent(player.fide_id)}`} target="_blank" rel="noreferrer" className="text-brand-300 hover:underline">FIDE ↗</a>
+                      <span className="rounded bg-surface-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('Unverified')}</span>
+                    </span>
+                  )}
                   {!player.lichess_username && !player.chesscom_username && !player.fide_id && (
                     <span className="text-xs text-gray-500">{t('No chess accounts linked yet.')}</span>
                   )}
                 </div>
+                {(player.lichess_username || player.chesscom_username || player.fide_id) && (
+                  <p className="mt-2 text-xs text-gray-500">{t('Chess accounts are unverified — anyone can type any username.')}</p>
+                )}
                 {user && player.id !== user.id && (
                   <Button
                     size="sm"
