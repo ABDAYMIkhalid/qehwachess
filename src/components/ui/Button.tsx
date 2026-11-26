@@ -10,14 +10,18 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<Variant, string> = {
+  // P1: primary/danger sit on fills that stay dark in light mode, so
+  // their text uses .text-on-dark (never remapped by the light-theme
+  // .text-white override). Secondary/ghost hover:text-white and
+  // outline hover:text-brand-200 are fixed by index.css instead.
   primary:
-    'bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 transition-all',
+    'bg-brand-500 hover:bg-brand-600 text-on-dark shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 transition-all',
   secondary:
     'bg-surface-900/80 hover:bg-surface-800 text-gray-200 border border-surface-700 hover:border-brand-500/50 hover:text-white shadow-sm transition-all',
   ghost:
     'bg-transparent hover:bg-white/5 text-gray-300 hover:text-white transition-all',
   danger:
-    'bg-error-500/90 hover:bg-error-500 text-white transition-all',
+    'bg-error-500/90 hover:bg-error-500 text-on-dark transition-all',
   outline:
     'bg-transparent border border-brand-500/50 hover:border-brand-400 hover:bg-brand-500/10 text-brand-300 hover:text-brand-200 transition-all',
 };
