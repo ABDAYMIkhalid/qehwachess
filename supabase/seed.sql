@@ -51,7 +51,8 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO tournaments (
   id, title, description, city_id, club_id, organizer_id,
-  start_date, end_date, venue, address, format, time_control,
+  start_date, end_date, start_time, venue, address, format,
+  time_control, time_control_category, fee_payment_mode,
   max_participants, registration_deadline, entry_fee, prize_fund,
   contact_email, status, featured
 )
@@ -63,8 +64,8 @@ VALUES
     (SELECT id FROM cities WHERE name = 'Casablanca'),
     '30000000-0000-4000-8000-000000000001',
     '20000000-0000-4000-8000-000000000001',
-    CURRENT_DATE + 7, CURRENT_DATE + 7, 'Casablanca Chess Club',
-    'Maarif, Casablanca', 'rapid', '15+10', 64, CURRENT_DATE + 5, 50,
+    CURRENT_DATE + 7, CURRENT_DATE + 7, '09:00', 'Casablanca Chess Club',
+    'Maarif, Casablanca', 'swiss', '15+10', 'rapid', 'pay_at_venue', 64, CURRENT_DATE + 5, 50,
     'Trophies and chess books', 'demo-organizer@chessmorocco.example',
     'published', true
   ),
@@ -75,8 +76,8 @@ VALUES
     (SELECT id FROM cities WHERE name = 'Rabat'),
     '30000000-0000-4000-8000-000000000002',
     '20000000-0000-4000-8000-000000000001',
-    CURRENT_DATE + 14, CURRENT_DATE + 15, 'Rabat Royal Chess Club',
-    'Agdal, Rabat', 'swiss', '60+30', 48, CURRENT_DATE + 11, 100,
+    CURRENT_DATE + 14, CURRENT_DATE + 15, '10:00', 'Rabat Royal Chess Club',
+    'Agdal, Rabat', 'swiss', '60+30', NULL, 'pay_at_venue', 48, CURRENT_DATE + 11, 100,
     'Prizes for top three and best junior', 'demo-organizer@chessmorocco.example',
     'published', true
   ),
@@ -87,8 +88,8 @@ VALUES
     (SELECT id FROM cities WHERE name = 'Marrakech'),
     '30000000-0000-4000-8000-000000000003',
     '20000000-0000-4000-8000-000000000001',
-    CURRENT_DATE + 5, CURRENT_DATE + 5, 'Marrakech Knights Club',
-    'Guéliz, Marrakech', 'blitz', '3+2', 40, CURRENT_DATE + 3, 30,
+    CURRENT_DATE + 5, CURRENT_DATE + 5, '18:00', 'Marrakech Knights Club',
+    'Guéliz, Marrakech', 'swiss', '3+2', 'blitz', 'pay_at_venue', 40, CURRENT_DATE + 3, 30,
     'Club prizes', 'demo-organizer@chessmorocco.example',
     'published', false
   ),
@@ -99,8 +100,8 @@ VALUES
     (SELECT id FROM cities WHERE name = 'Tangier'),
     '30000000-0000-4000-8000-000000000004',
     '20000000-0000-4000-8000-000000000001',
-    CURRENT_DATE + 21, CURRENT_DATE + 22, 'Tangier Chess Association',
-    'City Centre, Tangier', 'classical', '90+30', 40, CURRENT_DATE + 17, 120,
+    CURRENT_DATE + 21, CURRENT_DATE + 22, '09:30', 'Tangier Chess Association',
+    'City Centre, Tangier', 'swiss', '90+30', 'classical', 'pay_at_venue', 40, CURRENT_DATE + 17, 120,
     'Trophies and cash prizes', 'demo-organizer@chessmorocco.example',
     'published', true
   ),
@@ -111,8 +112,8 @@ VALUES
     (SELECT id FROM cities WHERE name = 'Casablanca'),
     '30000000-0000-4000-8000-000000000001',
     '20000000-0000-4000-8000-000000000001',
-    CURRENT_DATE + 28, CURRENT_DATE + 28, 'Casablanca Chess Club',
-    'Maarif, Casablanca', 'rapid', '10+5', 56, CURRENT_DATE + 24, 40,
+    CURRENT_DATE + 28, CURRENT_DATE + 28, '09:00', 'Casablanca Chess Club',
+    'Maarif, Casablanca', 'swiss', '10+5', 'rapid', 'pay_at_venue', 56, CURRENT_DATE + 24, 40,
     'Age-group medals and chess sets', 'demo-organizer@chessmorocco.example',
     'published', false
   ),
@@ -123,8 +124,8 @@ VALUES
     (SELECT id FROM cities WHERE name = 'Rabat'),
     '30000000-0000-4000-8000-000000000002',
     '20000000-0000-4000-8000-000000000001',
-    CURRENT_DATE + 35, CURRENT_DATE + 36, 'Rabat Royal Chess Club',
-    'Agdal, Rabat', 'swiss', '45+15', 48, CURRENT_DATE + 31, 60,
+    CURRENT_DATE + 35, CURRENT_DATE + 36, '10:00', 'Rabat Royal Chess Club',
+    'Agdal, Rabat', 'swiss', '45+15', NULL, 'pay_at_venue', 48, CURRENT_DATE + 31, 60,
     'Prizes for top finishers', 'demo-organizer@chessmorocco.example',
     'published', false
   )
