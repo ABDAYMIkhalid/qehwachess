@@ -1,14 +1,18 @@
+import { useState } from 'react';
 import { useClubs } from '@/hooks/useData';
+import { Button } from '@/components/ui/Button';
 import { Link } from '@/context/RouterContext';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { PageLoader, EmptyState } from '@/components/ui/Feedback';
+import { PageLoader, EmptyState, ErrorState } from '@/components/ui/Feedback';
 import { Building2, MapPin, Mail, Phone } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 
 export function ClubsPage() {
   const { t } = useLanguage();
-  const { clubs, loading } = useClubs();
+  const [page, setPage] = useState(1);
+  const { clubs, loading, error, totalCount, totalPages, hasNextPage, hasPreviousPage } =
+    useClubs({ page, pageSize: 12 });
 
   return (
     <div className="min-h-screen pt-24 pb-20">
@@ -18,6 +22,11 @@ export function ClubsPage() {
           <p className="text-gray-500 mt-2">{t('Discover chess clubs across Morocco and their events')}</p>
         </div>
 
+        {error && (
+          <div className="mb-4">
+            <ErrorState message={error} />
+          </div>
+        )}
         {loading ? (
           <PageLoader />
         ) : clubs.length === 0 ? (
@@ -58,6 +67,17 @@ export function ClubsPage() {
               </Link>
             ))}
           </div>
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <Button variant="outline" size="sm" disabled={!hasPreviousPage} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                {t('Previous')}
+              </Button>
+              <span className="text-sm text-gray-400">{t('Page')} {page} {t('of')} {totalPages}</span>
+              <Button variant="outline" size="sm" disabled={!hasNextPage} onClick={() => setPage((p) => p + 1)}>
+                {t('Next')}
+              </Button>
+            </div>
+          )}
         )}
       </div>
     </div>

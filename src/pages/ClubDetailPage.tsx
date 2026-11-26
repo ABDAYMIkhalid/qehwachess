@@ -1,4 +1,4 @@
-import { useClub } from '@/hooks/useData';
+import { useClub, useClubRatings } from '@/hooks/useData';
 import { Link, useRouter } from '@/context/RouterContext';
 import { useAuth } from '@/context/AuthContext';
 import { useEffect, useState } from 'react';
@@ -22,6 +22,7 @@ export function ClubDetailPage({ id }: { id: string }) {
   const { user, profile } = useAuth();
   const { navigate } = useRouter();
   const { club, tournaments, loading } = useClub(id);
+  const { ratings, loading: ratingsLoading, error: ratingsError } = useClubRatings(id);
   const [membershipStatus, setMembershipStatus] = useState<'pending' | 'active' | 'rejected' | null>(null);
   const [membershipLoading, setMembershipLoading] = useState(false);
   const [membershipError, setMembershipError] = useState<string | null>(null);
@@ -203,6 +204,41 @@ export function ClubDetailPage({ id }: { id: string }) {
             ))}
           </div>
         )}
+
+        <section className="mt-12" aria-label={t('Club ratings')}>
+          <h2 className="mb-1 flex items-center gap-2 text-xl font-bold text-white"><Trophy className="h-5 w-5 text-brand-400" />{t('Club ratings')}</h2>
+          <p className="mb-4 text-sm text-gray-500">{t('Ratings from completed over-the-board tournaments run by this club. Online ratings are never used.')}</p>
+          {ratingsLoading ? (
+            <p className="text-sm text-gray-500">{t('Loading club ratings...')}</p>
+          ) : ratingsError ? (
+            <p role="alert" className="text-sm text-error-400">{t(ratingsError)}</p>
+          ) : ratings.length === 0 ? (
+            <EmptyState icon={<Trophy className="w-10 h-10" />} title={t('No rated games yet')} description={t('Ratings appear here once this club finishes its first tournament.')} />
+          ) : (
+            <Card className="overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3">{t('Rank')}</th>
+                    <th className="px-4 py-3">{t('Player')}</th>
+                    <th className="px-4 py-3 text-right">{t('Rating')}</th>
+                    <th className="px-4 py-3 text-right">{t('Games')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ratings.map((entry, index) => (
+                    <tr key={entry.profile_id} className="border-t border-surface-800">
+                      <td className="px-4 py-2 text-gray-500">{index + 1}</td>
+                      <td className="px-4 py-2 text-gray-200">{entry.profile?.full_name ?? t('Player')}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-brand-300">{entry.rating}</td>
+                      <td className="px-4 py-2 text-right text-gray-400">{entry.games}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </section>
 
         <section className="mt-12">
           <h2 className="mb-4 flex items-center gap-2 text-xl font-bold text-white"><Users className="h-5 w-5 text-brand-400" />{t('Club Teams')}</h2>

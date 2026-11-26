@@ -21,6 +21,14 @@ import { useLanguage } from '@/context/LanguageContext';
 
 const moroccoCenter: [number, number] = [31.7917, -7.0926];
 
+// P1 (Scope F) — light theme, verified class by class against
+// src/index.css. No class changes were needed in this file: bg-surface-*
+// and text-brand-* resolve through the --tw-* variables, text-white /
+// text-gray-* are remapped by the light overrides, group-hover:text-brand-300
+// (upcoming cards) and text-surface-600 (arrows) are covered by the new
+// variant rules, and the hero wash / map tiles already had light rules.
+// See PART-SUMMARY.md for the full audit.
+
 export function HomePage() {
   const { t, language } = useLanguage();
   const translate = t;

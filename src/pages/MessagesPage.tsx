@@ -41,6 +41,10 @@ export function MessagesPage({ playerId, meetupId }: { playerId?: string; meetup
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // P1 (Scope D): surfaced when the Realtime subscription fails, so
+  // a stale thread is never silent. `loadThread()` still works
+  // manually (sending a message refetches), this only reports liveness.
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
 
   const loadThread = useCallback(async () => {
     if (!user) return;
@@ -152,24 +156,49 @@ export function MessagesPage({ playerId, meetupId }: { playerId?: string; meetup
       if (active) setLoading(false);
     }
     void loadInitialData();
-    const timer = window.setInterval(() => {
-      if (active && (playerId || meetupId)) void loadThread();
-    }, 5000);
+    // P1 (Scope D): Realtime replaces the old 5 s poll. One channel
+    // per open thread, filtered so only inserts for THIS thread
+    // refetch. Own messages are skipped here — sendMessage() already
+    // refetches after insert, and the echo would only double-load.
+    // The inbox view (no playerId/meetupId) intentionally has no
+    // channel: see "Notes / risks" below.
     const channel = playerId || meetupId
       ? supabase
           .channel(`community-messages-${user.id}-${playerId ?? meetupId}`)
           .on(
             'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'community_messages' },
-            () => {
-              if (active) void loadThread();
-            }
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'community_messages',
+              // Meetup threads filter on the thread itself. DM threads
+              // cannot be expressed as a single `filter` (the row
+              // matches if EITHER side is the pair), so they subscribe
+              // unfiltered and the payload check below discards rows
+              // for other conversations.
+              ...(meetupId ? { filter: `meetup_id=eq.${meetupId}` } : {}),
+            },
+            (payload) => {
+              if (!active) return;
+              const row = payload.new as { sender_id?: string; recipient_id?: string; meetup_id?: string | null };
+              if (row.sender_id === user.id) return;
+              if (playerId && row.sender_id !== playerId && row.recipient_id !== playerId) return;
+              if (meetupId && row.meetup_id !== meetupId) return;
+              void loadThread();
+            },
           )
-          .subscribe()
+          .subscribe((status) => {
+            // 'SUBSCRIBED' is the only healthy state. Anything else
+            // (CHANNEL_ERROR / TIMED_OUT / CLOSED) means live updates
+            // are off; the thread still works, but the user is told
+            // instead of staring at a stale conversation.
+            if (!active) return;
+            if (status === 'SUBSCRIBED') setRealtimeError(null);
+            else setRealtimeError(t('Live updates unavailable. New messages will appear when you reopen this conversation.'));
+          })
       : null;
     return () => {
       active = false;
-      window.clearInterval(timer);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [loadThread, meetupId, playerId, t, user]);
@@ -225,6 +254,11 @@ export function MessagesPage({ playerId, meetupId }: { playerId?: string; meetup
         </div>
 
         {error && <div className="mb-4"><ErrorState message={error} /></div>}
+        {realtimeError && !error && (
+          <p role="status" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+            {realtimeError}
+          </p>
+        )}
 
         {loading ? <PageLoader /> : playerId || meetupId ? playerId && people[0]?.id !== playerId ? (
           <Card className="p-6"><p className="text-center text-sm text-gray-400">{t('Player not found.')}</p></Card>

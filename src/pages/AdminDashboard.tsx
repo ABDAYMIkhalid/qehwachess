@@ -20,7 +20,7 @@ import {
   TrendingUp,
   Clock,
 } from 'lucide-react';
-import { Tournament, Profile, Registration } from '@/types';
+import { Tournament, Profile, Registration, OrganizerRequest } from '@/types';
 import {
   formatDateRange,
   tournamentStatusLabels,
@@ -36,10 +36,11 @@ export function AdminDashboard() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [organizerRequests, setOrganizerRequests] = useState<OrganizerRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'tournaments' | 'users' | 'overview'>('overview');
+  const [tab, setTab] = useState<'tournaments' | 'users' | 'overview' | 'organizer-requests'>('overview');
 
   useEffect(() => {
     if (authLoading) return;
@@ -51,7 +52,7 @@ export function AdminDashboard() {
     (async () => {
       setLoading(true);
       setDataError(null);
-      const [tournamentResult, profileResult, registrationResult] = await Promise.all([
+      const [tournamentResult, profileResult, registrationResult, requestResult] = await Promise.all([
         supabase
         .from('tournaments')
         .select('*, city:cities(*), organizer:profiles!tournaments_organizer_id_fkey(*)')
@@ -65,15 +66,22 @@ export function AdminDashboard() {
         .select('*, tournament:tournaments(title), player:profiles!registrations_player_id_fkey(full_name, email)')
         .order('registered_at', { ascending: false })
         .limit(20),
+        supabase
+        .from('organizer_requests')
+        .select('*, profile:profiles!organizer_requests_profile_id_fkey(id, full_name, email, city:cities(name))')
+        .eq('status', 'pending')
+        .order('requested_at', { ascending: true }),
       ]);
 
       setTournaments(tournamentResult.data ?? []);
       setProfiles(profileResult.data ?? []);
       setRegistrations(registrationResult.data ?? []);
+      setOrganizerRequests((requestResult.data ?? []) as unknown as OrganizerRequest[]);
       const errors = [
         tournamentResult.error,
         profileResult.error,
         registrationResult.error,
+        requestResult.error,
       ].filter((error) => error !== null);
       if (errors.length > 0) {
         setDataError(errors.map((error) => error.message).join(' '));
@@ -105,6 +113,34 @@ export function AdminDashboard() {
     setTournaments(tournaments.map((t) => t.id === id ? { ...t, status: status as Tournament['status'] } : t));
   }
 
+  // P1 (Scope E): the ONLY client path that can make someone an
+  // organiser. review_organizer_request() is SECURITY DEFINER and
+  // checks the caller is an admin; it updates the request AND the
+  // profile role atomically. A direct profiles.update({ role }) here
+  // would fail under RLS (admins cannot update other users' rows).
+  async function reviewOrganizerRequest(requestId: string, approve: boolean) {
+    setActionError(null);
+    const { data, error } = await supabase.rpc('review_organizer_request', {
+      p_request_id: requestId,
+      p_approve: approve,
+    });
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    const reviewedProfileId = (data as { profile_id?: string } | null)?.profile_id;
+    setOrganizerRequests((current) => current.filter((request) => request.id !== requestId));
+    if (approve && reviewedProfileId) {
+      setProfiles((current) =>
+        current.map((p) =>
+          p.id === reviewedProfileId
+            ? { ...p, role: 'organizer', organizer_request_status: 'approved' }
+            : p,
+        ),
+      );
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!confirm('Delete this tournament permanently?')) return;
     await supabase.from('tournaments').delete().eq('id', id);
@@ -118,12 +154,14 @@ export function AdminDashboard() {
     totalUsers: profiles.length,
     organizers: profiles.filter((p) => p.role === 'organizer').length,
     players: profiles.filter((p) => p.role === 'player').length,
+    pendingOrganizerRequests: organizerRequests.length,
   };
 
   const tabs = [
     { id: 'overview' as const, label: t('Overview'), icon: TrendingUp },
     { id: 'tournaments' as const, label: t('Tournaments'), icon: Trophy },
     { id: 'users' as const, label: t('Users'), icon: Users },
+    { id: 'organizer-requests' as const, label: t('Organizer Requests'), icon: Building2 },
   ];
 
   return (
@@ -149,6 +187,7 @@ export function AdminDashboard() {
             { icon: Users, label: t('Total Users'), value: stats.totalUsers, color: 'text-brand-400' },
             { icon: Building2, label: t('Organizers'), value: stats.organizers, color: 'text-accent-400' },
             { icon: Trophy, label: t('Players'), value: stats.players, color: 'text-gray-400' },
+            { icon: Building2, label: t('Organizer Requests'), value: stats.pendingOrganizerRequests, color: 'text-amber-400' },
           ].map((stat, i) => (
             <Card key={i} className="p-4">
               <stat.icon className={`w-4 h-4 ${stat.color} mb-2`} />
@@ -166,7 +205,7 @@ export function AdminDashboard() {
         )}
         {actionError && (
           <div role="alert" className="mb-6 rounded-xl border border-error-500/30 bg-error-500/10 p-4 text-sm text-error-300">
-            {t('Could not update tournament:')} {actionError}
+            {t('Could not complete this action:')} {actionError}
           </div>
         )}
         <div className="flex gap-1 mb-6 bg-surface-900 border border-surface-700 rounded-xl p-1 w-fit">
@@ -267,6 +306,37 @@ export function AdminDashboard() {
                     )}
                     <Button variant="ghost" size="sm" onClick={() => handleDelete(t.id)} className="text-error-400 hover:bg-error-500/10">
                       <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </Card>
+              ))
+            )}
+          </div>
+        ) : tab === 'organizer-requests' ? (
+          <div className="flex flex-col gap-4">
+            {organizerRequests.length === 0 ? (
+              <EmptyState icon={<Building2 className="w-12 h-12" />} title={t('No organizer requests')} description={t('New organizer requests will appear here for review.')} />
+            ) : (
+              organizerRequests.map((request) => (
+                <Card key={request.id} className="p-5 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                    {request.profile?.full_name?.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-white truncate">{request.profile?.full_name}</h3>
+                    <p className="text-sm text-gray-500 truncate">{request.profile?.email}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {request.profile?.city?.name}
+                      {request.requested_at && ` · ${formatDateRange(request.requested_at, request.requested_at, language)}`}
+                    </p>
+                  </div>
+                  <Badge className="bg-amber-500/10 text-amber-300 border-amber-500/30">{t('Pending')}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={() => void reviewOrganizerRequest(request.id, true)}>
+                      <CheckCircle2 className="w-3.5 h-3.5" />{translate('Approve')}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void reviewOrganizerRequest(request.id, false)} className="text-error-400 hover:bg-error-500/10">
+                      <XCircle className="w-4 h-4" />{translate('Reject')}
                     </Button>
                   </div>
                 </Card>

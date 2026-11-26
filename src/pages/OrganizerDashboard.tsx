@@ -18,11 +18,13 @@ import {
   Calendar,
   Clock,
 } from 'lucide-react';
-import { Tournament, TournamentStatus, City, Club } from '@/types';
+import { Tournament, TournamentStatus, City, Club, FeePaymentMode, RoundScheduleEntry, TimeControlCategory } from '@/types';
 import {
   formatDateRange,
   getDaysUntil,
   tournamentFormatLabels,
+  timeControlLabels,
+  feePaymentModeLabels,
   tournamentStatusLabels,
   tournamentStatusColors,
 } from '@/lib/utils';
@@ -167,7 +169,7 @@ export function OrganizerDashboard() {
                   <div className="flex items-center gap-3 mt-1.5 text-sm text-gray-500">
                     <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{t.city?.name}</span>
                     <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDateRange(t.start_date, t.end_date, language)}</span>
-                    <span>{translate(tournamentFormatLabels[t.format])}</span>
+                    <span>{translate(tournamentFormatLabels[t.format])}{t.time_control_category ? ` · ${translate(timeControlLabels[t.time_control_category])}` : ''}</span>
                   </div>
                 </div>
                 <div className="hidden sm:flex flex-col items-end gap-1.5">
@@ -220,20 +222,59 @@ function TournamentForm({ tournament, cities, clubs, onClose, onSaved }: FormPro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    title: string;
+    description: string;
+    city_id: string;
+    club_id: string;
+    start_date: string;
+    end_date: string;
+    start_time: string;
+    round_schedule: RoundScheduleEntry[];
+    venue: string;
+    address: string;
+    format: Tournament['format'];
+    time_control: string;
+    time_control_category: TimeControlCategory | '';
+    max_participants: number;
+    registration_deadline: string;
+    entry_fee: number;
+    fee_payment_mode: FeePaymentMode;
+    payment_link: string;
+    prize_fund: string;
+    contact_email: string;
+    contact_phone: string;
+    status: TournamentStatus;
+    image_url: string;
+  }>({
     title: tournament?.title ?? '',
     description: tournament?.description ?? '',
     city_id: tournament?.city_id ?? cities[0]?.id ?? '',
     club_id: tournament?.club_id ?? '',
     start_date: tournament?.start_date ?? '',
     end_date: tournament?.end_date ?? '',
+    // start_time is HH:MM from the `time` column (venue-local).
+    // Pre-P1 rows have null -> '' here. The DB stores HH:MM:SS;
+    // Supabase returns time as "09:30:00" — slice to HH:MM.
+    start_time: (tournament?.start_time ?? '').slice(0, 5),
+    round_schedule: tournament?.round_schedule ?? [],
     venue: tournament?.venue ?? '',
     address: tournament?.address ?? '',
-    format: tournament?.format ?? 'swiss',
+    // Legacy guard: a pre-migration row whose format is still a
+    // time control ('blitz' | 'rapid' | 'classical') must not
+    // reach the System select. The migration backfills those to
+    // 'swiss' + a category; this is defence in depth only, for
+    // a database the migration has not run on yet.
+    format: (['swiss', 'round-robin', 'knockout', 'simultaneous'].includes(tournament?.format ?? '')
+      ? tournament!.format
+      : 'swiss'),
     time_control: tournament?.time_control ?? '',
+    time_control_category: tournament?.time_control_category ?? '',
     max_participants: tournament?.max_participants ?? 60,
     registration_deadline: tournament?.registration_deadline ?? '',
     entry_fee: tournament?.entry_fee ?? 0,
+    fee_payment_mode: tournament?.fee_payment_mode ?? (Number(tournament?.entry_fee ?? 0) === 0 ? 'free' : 'pay_at_venue'),
+    payment_link: tournament?.payment_link ?? '',
     prize_fund: tournament?.prize_fund ?? '',
     contact_email: tournament?.contact_email ?? '',
     contact_phone: tournament?.contact_phone ?? '',
@@ -245,19 +286,84 @@ function TournamentForm({ tournament, cities, clubs, onClose, onSaved }: FormPro
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  // Round schedule is an array, so it cannot go through set()
+  // (string | number only). Rows are kept sorted by round_number;
+  // the DB trigger re-validates day-within-range and HH:MM.
+  function updateRound(index: number, patch: Partial<RoundScheduleEntry>) {
+    setForm((prev) => ({
+      ...prev,
+      round_schedule: prev.round_schedule.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    }));
+  }
+
+  function addRound() {
+    setForm((prev) => ({
+      ...prev,
+      round_schedule: [
+        ...prev.round_schedule,
+        {
+          round_number: (prev.round_schedule.length > 0 ? prev.round_schedule[prev.round_schedule.length - 1].round_number : 0) + 1,
+          day: prev.start_date || prev.end_date || '',
+          start_time: prev.start_time || '09:30',
+          label: '',
+        },
+      ],
+    }));
+  }
+
+  function removeRound(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      round_schedule: prev.round_schedule.filter((_, i) => i !== index),
+    }));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(null);
+
+    // Fee / payment validation happens BEFORE any Supabase call,
+    // so a bad link is a form error, not a DB trigger error.
+    const fee = Number(form.entry_fee);
+    const feeMode: FeePaymentMode = fee === 0 ? 'free' : form.fee_payment_mode;
+    const paymentLink = feeMode === 'online_link' ? form.payment_link.trim() : '';
+    if (feeMode === 'online_link' && !/^https:\/\/[^ ]+$/.test(paymentLink)) {
+      setError(t('Enter a valid payment link starting with https://, or choose "Pay at venue".'));
+      setSaving(false);
+      return;
+    }
+    if (form.start_date && form.end_date && form.end_date < form.start_date) {
+      setError(t('End date must be on or after the start date.'));
+      setSaving(false);
+      return;
+    }
+    // Round schedule: drop empty rows, re-number 1..n in order,
+    // keep only HH:MM times. The DB trigger is the backstop.
+    const roundSchedule = form.round_schedule
+      .filter((row) => row.day && row.start_time)
+      .map((row, i) => ({
+        round_number: i + 1,
+        day: row.day,
+        start_time: row.start_time.slice(0, 5),
+        label: row.label?.trim() ? row.label.trim() : `Round ${i + 1}`,
+      }));
 
     const payload = {
       ...form,
       organizer_id: user!.id,
       club_id: form.club_id || null,
       registration_deadline: form.registration_deadline || null,
-      entry_fee: Number(form.entry_fee),
+      entry_fee: fee,
       max_participants: Number(form.max_participants),
       image_url: form.image_url || null,
+      // P1: null (not '') for "not set", so the DB columns stay
+      // clean and the detail page can tell "not set" from "".
+      start_time: form.start_time || null,
+      round_schedule: roundSchedule.length > 0 ? roundSchedule : null,
+      time_control_category: form.time_control_category || null,
+      fee_payment_mode: feeMode,
+      payment_link: paymentLink || null,
     };
 
     if (tournament) {
@@ -341,6 +447,18 @@ function TournamentForm({ tournament, cities, clubs, onClose, onSaved }: FormPro
 
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className={labelClass}>{t('Start Time')}</label>
+              <input type="time" value={form.start_time} onChange={(e) => set('start_time', e.target.value)} className={inputClass} />
+              <p className="mt-1.5 text-xs text-gray-500">{t('Time the first round starts, local venue time. Round-by-round times go in the schedule below.')}</p>
+            </div>
+            <div>
+              <label className={labelClass}>{t('Registration Deadline')}</label>
+              <input type="date" value={form.registration_deadline} onChange={(e) => set('registration_deadline', e.target.value)} className={inputClass} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <label className={labelClass}>{t('Venue')} *</label>
               <input required value={form.venue} onChange={(e) => set('venue', e.target.value)} className={inputClass} placeholder={t('Venue name')} />
             </div>
@@ -352,15 +470,66 @@ function TournamentForm({ tournament, cities, clubs, onClose, onSaved }: FormPro
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>{t('Format')} *</label>
-              <select value={form.format} onChange={(e) => set('format', e.target.value)} className={inputClass}>
-                {Object.entries(tournamentFormatLabels).map(([v, l]) =>                 <option key={v} value={v}>{t(l)}</option>)}
+              <label className={labelClass}>{t('System')} *</label>
+              <select value={form.format} onChange={(e) => set('format', e.target.value as Tournament['format'])} className={inputClass}>
+                {(Object.entries(tournamentFormatLabels) as Array<[Tournament['format'], string]>).map(([v, l]) => (
+                  <option key={v} value={v} disabled={v !== 'swiss'}>
+                    {t(l)}{v !== 'swiss' ? ` (${t('coming soon')})` : ''}
+                  </option>
+                ))}
               </select>
+              <p className="mt-1.5 text-xs text-gray-500">{t('Only Swiss pairings are supported yet. Other systems are coming soon.')}</p>
             </div>
             <div>
               <label className={labelClass}>{t('Time Control')}</label>
-              <input value={form.time_control} onChange={(e) => set('time_control', e.target.value)} className={inputClass} placeholder="e.g. 90 min + 30 sec" />
+              <select value={form.time_control_category} onChange={(e) => set('time_control_category', e.target.value as TimeControlCategory | '')} className={inputClass}>
+                <option value="">{t('No clock / casual')}</option>
+                {(Object.entries(timeControlLabels) as Array<[TimeControlCategory, string]>).map(([v, l]) => (
+                  <option key={v} value={v}>{t(l)}</option>
+                ))}
+              </select>
             </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>{t('Time Control Details')}</label>
+            <input value={form.time_control} onChange={(e) => set('time_control', e.target.value)} className={inputClass} placeholder="e.g. 90 min + 30 sec" />
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className={labelClass}>{t('Round Schedule')}</label>
+              <Button type="button" variant="outline" size="sm" onClick={addRound}>
+                <Plus className="w-4 h-4" />{t('Add round')}
+              </Button>
+            </div>
+            {form.round_schedule.length === 0 ? (
+              <p className="text-xs text-gray-500">{t('Optional. Add a start time for each round — players see this on the tournament page.')}</p>
+            ) : (
+              <div className="space-y-2">
+                {form.round_schedule.map((row, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                    <input
+                      type="date" aria-label={t('Round day')} value={row.day}
+                      min={form.start_date || undefined} max={form.end_date || undefined}
+                      onChange={(e) => updateRound(i, { day: e.target.value })} className={inputClass}
+                    />
+                    <input
+                      type="time" aria-label={t('Round start time')} value={row.start_time}
+                      onChange={(e) => updateRound(i, { start_time: e.target.value })} className={inputClass}
+                    />
+                    <input
+                      value={row.label ?? ''} aria-label={t('Round label')}
+                      onChange={(e) => updateRound(i, { label: e.target.value })}
+                      placeholder={`${t('Round')} ${row.round_number}`} className={inputClass}
+                    />
+                    <button type="button" onClick={() => removeRound(i)} aria-label={t('Remove round')} className="text-gray-400 hover:text-error-400 p-1">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -374,11 +543,32 @@ function TournamentForm({ tournament, cities, clubs, onClose, onSaved }: FormPro
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>{t('Registration Deadline')}</label>
-              <input type="date" value={form.registration_deadline} onChange={(e) => set('registration_deadline', e.target.value)} className={inputClass} />
+          {Number(form.entry_fee) > 0 && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>{t('How is the fee paid?')}</label>
+                <select value={form.fee_payment_mode === 'free' ? 'pay_at_venue' : form.fee_payment_mode} onChange={(e) => set('fee_payment_mode', e.target.value as FeePaymentMode)} className={inputClass}>
+                  {(Object.entries(feePaymentModeLabels) as Array<[FeePaymentMode, string]>)
+                    .filter(([v]) => v !== 'free')
+                    .map(([v, l]) => (
+                      <option key={v} value={v}>{t(l)}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>{t('Payment Link (optional)')}</label>
+                <input
+                  type="url" value={form.payment_link}
+                  onChange={(e) => set('payment_link', e.target.value)}
+                  className={inputClass} placeholder="https://..."
+                  disabled={form.fee_payment_mode !== 'online_link'}
+                />
+                <p className="mt-1.5 text-xs text-gray-500">{t('Only used when "Pay online" is selected. No payment provider is connected — this is just a link players follow.')}</p>
+              </div>
             </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>{t('Status')}</label>
               <select value={form.status} onChange={(e) => set('status', e.target.value)} className={inputClass}>

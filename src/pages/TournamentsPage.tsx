@@ -1,45 +1,68 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useTournaments, useCities } from '@/hooks/useData';
 import { TournamentCard } from '@/components/TournamentCard';
-import { PageLoader, EmptyState } from '@/components/ui/Feedback';
+import { PageLoader, EmptyState, ErrorState } from '@/components/ui/Feedback';
 import { Search, SlidersHorizontal, X, Trophy } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { Button } from '@/components/ui/Button';
+import { tournamentFormatLabels, timeControlLabels } from '@/lib/utils';
+import type { TimeControlCategory, TournamentFormat } from '@/types';
 
 export function TournamentsPage() {
+  // P1 (Scope F): light-theme classes in this file (text-white on the
+  // search input/selects, hover:text-white on the filter button) are
+  // fixed centrally in src/index.css — no per-class changes needed here.
+  // The one code change is the result count, which was hardcoded English.
   const { t } = useLanguage();
   const { cities } = useCities();
   const [search, setSearch] = useState('');
   const [cityId, setCityId] = useState('');
   const [format, setFormat] = useState('');
+  // P1 — second filter axis (NOTES.md §1). System and time
+  // control are independent: a "Blitz Swiss" is format=swiss
+  // + timeControlCategory=blitz, and either filter may be set
+  // without the other.
+  const [timeControlCategory, setTimeControlCategory] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(1);
 
   const filters = useMemo(
     () => ({
       search: search || undefined,
       cityId: cityId || undefined,
       format: format || undefined,
+      timeControlCategory: timeControlCategory || undefined,
     }),
-    [search, cityId, format]
+    [search, cityId, format, timeControlCategory]
   );
 
-  const { tournaments, loading } = useTournaments(filters);
+  // P1 (Scope D): page resets whenever the filters change, so a
+  // filtered search never lands on an empty page 3 of a 1-page result.
+  useEffect(() => { setPage(1); }, [search, cityId, format, timeControlCategory]);
 
-  const activeFilterCount = (cityId ? 1 : 0) + (format ? 1 : 0);
+  const { tournaments, loading, error, totalCount, totalPages, hasNextPage, hasPreviousPage } =
+    useTournaments(filters, { page, pageSize: 12 });
+
+  const activeFilterCount = (cityId ? 1 : 0) + (format ? 1 : 0) + (timeControlCategory ? 1 : 0);
 
   function clearFilters() {
     setCityId('');
     setFormat('');
+    setTimeControlCategory('');
     setSearch('');
   }
 
-  const formats = [
-    { value: 'swiss', label: t('Swiss System') },
-    { value: 'round-robin', label: t('Round Robin') },
-    { value: 'knockout', label: t('Knockout') },
-    { value: 'blitz', label: t('Blitz') },
-    { value: 'rapid', label: t('Rapid') },
-    { value: 'classical', label: t('Classical') },
-  ];
+  // System only — 'blitz' / 'rapid' / 'classical' are NOT
+  // systems and must not appear here (they were the bug).
+  // round-robin / knockout / simultaneous are listed because
+  // such tournaments may exist in the data even though the
+  // creation form only offers Swiss for now.
+  const formats = (Object.entries(tournamentFormatLabels) as Array<[TournamentFormat, string]>).map(
+    ([value, label]) => ({ value, label: t(label) }),
+  );
+  const timeControls = (Object.entries(timeControlLabels) as Array<[TimeControlCategory, string]>).map(
+    ([value, label]) => ({ value, label: t(label) }),
+  );
 
   return (
     <div className="min-h-screen pt-24 pb-20">
@@ -83,7 +106,7 @@ export function TournamentsPage() {
         {/* Filter panel */}
         {showFilters && (
           <div className="bg-surface-900 border border-surface-700 rounded-xl p-5 mb-6 animate-slide-down">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-400 mb-2 block">{t('City')}</label>
                 <select
@@ -106,6 +129,19 @@ export function TournamentsPage() {
                 >
                   <option value="">{t('All formats')}</option>
                   {formats.map((f) => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-400 mb-2 block">{t('Time Control')}</label>
+                <select
+                  value={timeControlCategory}
+                  onChange={(e) => setTimeControlCategory(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-surface-800 border border-surface-700 rounded-lg text-white focus:outline-none focus:border-brand-500 transition-colors"
+                >
+                  <option value="">{t('All time controls')}</option>
+                  {timeControls.map((f) => (
                     <option key={f.value} value={f.value}>{f.label}</option>
                   ))}
                 </select>
@@ -134,8 +170,13 @@ export function TournamentsPage() {
           />
         ) : (
           <>
+            {error && (
+              <div className="mb-4">
+                <ErrorState message={error} />
+              </div>
+            )}
             <p className="text-sm text-gray-500 mb-4">
-              {tournaments.length} {tournaments.length === 1 ? 'tournament' : 'tournaments'} found
+              {totalCount} {totalCount === 1 ? t('tournament found') : t('tournaments found')}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {tournaments.map((t, i) => (
@@ -144,6 +185,17 @@ export function TournamentsPage() {
                 </div>
               ))}
             </div>
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-3">
+                <Button variant="outline" size="sm" disabled={!hasPreviousPage} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  {t('Previous')}
+                </Button>
+                <span className="text-sm text-gray-400">{t('Page')} {page} {t('of')} {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={!hasNextPage} onClick={() => setPage((p) => p + 1)}>
+                  {t('Next')}
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -65,7 +65,20 @@ export function SignUpPage() {
         setError(result.error);
         setLoading(false);
       } else if (result.confirmationRequired) {
-        setNotice('Account created. Check your email for a confirmation link before signing in.');
+        // P1 (Scope E): the organiser request is recorded when the
+        // profile is created on first sign-in, so a requester who
+        // still has to confirm their email is told now, not later.
+        setNotice(
+          result.organizerRequested
+            ? 'Account created. Check your email for a confirmation link before signing in. Your organizer request will be reviewed by an admin after you sign in.'
+            : 'Account created. Check your email for a confirmation link before signing in.',
+        );
+        setLoading(false);
+      } else if (result.organizerRequested) {
+        // P1 (Scope E): do NOT navigate away — the notice below is
+        // the only place the user learns their request is pending.
+        // They are a player until an admin approves them.
+        setNotice('Your organizer request is pending admin approval. You can play now — organizing unlocks after approval.');
         setLoading(false);
       } else {
         navigate({ name: 'dashboard' });
@@ -130,7 +143,7 @@ export function SignUpPage() {
               >
                 <Building2 className={`w-5 h-5 mb-2 ${role === 'organizer' ? 'text-brand-400' : 'text-gray-500'}`} />
                 <p className="text-sm font-bold text-white">{t('Organize')}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{t('Publish tournaments')}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{t('Publish tournaments (admin approval required)')}</p>
               </button>
             </div>
           </div>

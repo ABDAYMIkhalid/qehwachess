@@ -26,14 +26,18 @@ import {
   formatDate,
   formatDateRange,
   formatPrice,
+  formatTimeOfDay,
   getDaysUntil,
   tournamentFormatLabels,
+  timeControlLabels,
+  feePaymentModeLabels,
   tournamentStatusColors,
 } from '@/lib/utils';
 import { Registration } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
 import { TournamentCheckInPanel } from '@/components/TournamentCheckInPanel';
 import { TournamentPairingsPanel } from '@/components/TournamentPairingsPanel';
+import { TournamentAnnouncementsPanel } from '@/components/TournamentAnnouncementsPanel';
 
 export function TournamentDetailPage({ id }: { id: string }) {
   const { t, language } = useLanguage();
@@ -85,6 +89,10 @@ export function TournamentDetailPage({ id }: { id: string }) {
     getDaysUntil(tournament.registration_deadline) < 0;
   const isRegistered = registration && registration.status !== 'cancelled';
   const canManageTournament = profile?.role === 'admin' || tournament.organizer_id === user?.id;
+  // Announcements are visible to managers and to confirmed players
+  // only (waitlisted / pending players see nothing — the panel
+  // itself also returns null, and RLS enforces it server-side).
+  const isConfirmedPlayer = registration?.status === 'confirmed';
 
   async function handleRegister() {
     if (!user) {
@@ -191,14 +199,34 @@ export function TournamentDetailPage({ id }: { id: string }) {
     setRegistering(false);
   }
 
+  // Combined label, t() per part (see utils.ts — never t() a
+  // pre-joined string). The free-text time control ("10+5") is
+  // shown next to its category ("Rapid") when both are set.
+  const formatLabel =
+    t(tournamentFormatLabels[tournament.format])
+    + (tournament.time_control_category ? ` · ${t(timeControlLabels[tournament.time_control_category])}` : '');
+  const timeControlValue =
+    tournament.time_control_category && tournament.time_control
+      ? `${t(timeControlLabels[tournament.time_control_category])} — ${tournament.time_control}`
+      : tournament.time_control ?? (tournament.time_control_category ? t(timeControlLabels[tournament.time_control_category]) : t('TBD'));
+  // Fee: "50 MAD — Pay at venue" / "50 MAD — Pay online" / "Free".
+  // The payment link itself is NOT in this row — it gets its own
+  // block below (§5) so it is unmissable and clearly labelled.
+  const feeValue =
+    Number(tournament.entry_fee) === 0
+      ? t('Free')
+      : `${formatPrice(Number(tournament.entry_fee))} — ${t(feePaymentModeLabels[tournament.fee_payment_mode ?? 'pay_at_venue'])}`;
+  const startTimeValue = formatTimeOfDay(tournament.start_time);
+
   const infoRows = [
     { icon: Calendar, label: t('Dates'), value: formatDateRange(tournament.start_date, tournament.end_date, language) },
-    { icon: Clock, label: t('Time Control'), value: tournament.time_control ?? t('TBD') },
-    { icon: Trophy, label: t('Format'), value: t(tournamentFormatLabels[tournament.format]) },
+    { icon: Clock, label: t('Start Time'), value: startTimeValue || t('TBD') },
+    { icon: Clock, label: t('Time Control'), value: timeControlValue },
+    { icon: Trophy, label: t('Format'), value: formatLabel },
     { icon: MapPin, label: t('Venue'), value: tournament.venue },
     { icon: MapPin, label: t('Address'), value: tournament.address ?? t('TBD') },
     { icon: Users, label: t('Capacity'), value: `${tournament.max_participants} ${t('players')}` },
-    { icon: DollarSign, label: t('Entry Fee'), value: formatPrice(Number(tournament.entry_fee)) },
+    { icon: DollarSign, label: t('Entry Fee'), value: feeValue },
     { icon: CalendarClock, label: t('Registration Deadline'), value: tournament.registration_deadline ? formatDate(tournament.registration_deadline, language) : t('No deadline') },
   ];
 
@@ -224,7 +252,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
           <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
             <div className="flex items-center gap-3 mb-3">
               <Badge className="bg-brand-500/20 text-brand-300 border-brand-500/30">
-                {tournamentFormatLabels[tournament.format]}
+                {formatLabel}
               </Badge>
               <Badge className={tournamentStatusColors[tournament.status]}>
                 {t(tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1))}
@@ -244,6 +272,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
               <span className="flex items-center gap-1.5 text-sm">
                 <Calendar className="w-4 h-4 text-brand-400" />
                 {formatDateRange(tournament.start_date, tournament.end_date, language)}
+                {startTimeValue ? ` · ${startTimeValue}` : ''}
               </span>
             </div>
           </div>
@@ -257,6 +286,13 @@ export function TournamentDetailPage({ id }: { id: string }) {
             )}
             {(tournament.status === 'published' || canManageTournament) && (
               <TournamentPairingsPanel tournamentId={tournament.id} isManager={canManageTournament} format={tournament.format} />
+            )}
+            {(tournament.status === 'published' || canManageTournament) && (
+              <TournamentAnnouncementsPanel
+                tournamentId={tournament.id}
+                isManager={canManageTournament}
+                isConfirmedPlayer={isConfirmedPlayer}
+              />
             )}
             {/* About */}
             <Card className="p-6 sm:p-8">
@@ -281,6 +317,54 @@ export function TournamentDetailPage({ id }: { id: string }) {
                 ))}
               </div>
             </Card>
+
+            {/* Entry-fee payment link — online mode only */}
+            {tournament.fee_payment_mode === 'online_link' && tournament.payment_link && (
+              <Card className="p-6 sm:p-8">
+                <h2 className="text-xl font-bold text-white mb-2">{t('Pay Entry Fee Online')}</h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  {t('The entry fee is paid through the organizer’s link below. Qehwa Chess does not process this payment.')}
+                </p>
+                <a
+                  href={tournament.payment_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-500 text-white hover:bg-brand-600 transition-colors text-sm font-medium"
+                >
+                  <DollarSign className="w-4 h-4" />
+                  {t('Pay entry fee')} — {formatPrice(Number(tournament.entry_fee))}
+                </a>
+                <p className="mt-3 text-xs text-gray-500 break-all">{tournament.payment_link}</p>
+              </Card>
+            )}
+            {tournament.fee_payment_mode === 'pay_at_venue' && Number(tournament.entry_fee) > 0 && (
+              <Card className="p-6 sm:p-8">
+                <h2 className="text-xl font-bold text-white mb-2">{t('Pay at Venue')}</h2>
+                <p className="text-sm text-gray-500">
+                  {t('Please bring the entry fee to the venue on the day of the tournament.')} {formatPrice(Number(tournament.entry_fee))}
+                </p>
+              </Card>
+            )}
+            {/* Round schedule — day-of times set by the organizer */}
+            {tournament.round_schedule && tournament.round_schedule.length > 0 && (
+              <Card className="p-6 sm:p-8">
+                <h2 className="text-xl font-bold text-white mb-5">{t('Round Schedule')}</h2>
+                <div className="space-y-2">
+                  {[...tournament.round_schedule]
+                    .sort((a, b) => a.round_number - b.round_number)
+                    .map((round) => (
+                      <div key={round.round_number} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-surface-800/50">
+                        <span className="text-sm font-medium text-white">
+                          {round.label?.trim() ? round.label : `${t('Round')} ${round.round_number}`}
+                        </span>
+                        <span className="text-sm text-gray-400">
+                          {formatDate(round.day, language)} · {formatTimeOfDay(round.start_time)}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </Card>
+            )}
 
             {/* Prize fund */}
             {tournament.prize_fund && (
@@ -427,11 +511,11 @@ export function TournamentDetailPage({ id }: { id: string }) {
                 <div className="flex flex-col gap-3 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">{t('Entry Fee')}</span>
-                    <span className="text-white font-medium">{t(formatPrice(Number(tournament.entry_fee)))}</span>
+                    <span className="text-white font-medium">{feeValue}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">{t('Format')}</span>
-                    <span className="text-white font-medium">{t(tournamentFormatLabels[tournament.format])}</span>
+                    <span className="text-white font-medium">{formatLabel}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">{t('City')}</span>
@@ -439,7 +523,7 @@ export function TournamentDetailPage({ id }: { id: string }) {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">{t('Starts')}</span>
-                    <span className="text-white font-medium">{formatDate(tournament.start_date, language)}</span>
+                    <span className="text-white font-medium">{formatDate(tournament.start_date, language)}{startTimeValue ? ` · ${startTimeValue}` : ''}</span>
                   </div>
                 </div>
               </Card>

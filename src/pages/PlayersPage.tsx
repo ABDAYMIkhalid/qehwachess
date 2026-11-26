@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Clock3, LocateFixed, MapPin, MessageCircle, Search, UserRound } from 'lucide-react';
+import { Clock3, LocateFixed, MapPin, MessageCircle, Search, Trophy, UserRound } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/context/RouterContext';
-import { useCities } from '@/hooks/useData';
+import { useCities, useTopClubRatings } from '@/hooks/useData';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/Card';
 import { EmptyState, ErrorState, PageLoader } from '@/components/ui/Feedback';
@@ -30,6 +30,7 @@ export function PlayersPage() {
   const { user, profile } = useAuth();
   const { navigate } = useRouter();
   const { cities } = useCities();
+  const { ratings: topRated, loading: ratingsLoading } = useTopClubRatings(10);
   const { coordinates, loading: locationLoading, error: locationError, requestLocation } = useDeviceLocation();
   const [players, setPlayers] = useState<PublicPlayer[]>([]);
   const [search, setSearch] = useState('');
@@ -164,6 +165,33 @@ export function PlayersPage() {
           <p className="mt-2 text-gray-500">{t('Find chess players in your city and discover their chess accounts.')}</p>
           <p className="mt-2 text-sm text-gray-500">{t('Nearby matching uses approximate city-center locations. Your device location stays in this browser and is not saved.')}</p>
         </div>
+
+        {!ratingsLoading && topRated.length > 0 && (
+          <section aria-label={t('Top rated in club play')} className="mb-8 rounded-2xl border border-surface-700 bg-surface-900 p-4 sm:p-5">
+            <h2 className="flex items-center gap-2 font-semibold text-white">
+              <Trophy className="h-5 w-5 text-brand-400" />
+              {t('Top rated in club play')}
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              {t('Ratings from completed over-the-board club tournaments only. Online ratings are not used.')}
+            </p>
+            <ol className="mt-4 divide-y divide-surface-800">
+              {topRated.map((entry, index) => (
+                <li key={`${entry.club_id}-${entry.profile_id}`} className="flex items-center gap-3 py-2 text-sm">
+                  <span className="w-6 shrink-0 text-center font-bold text-gray-500">{index + 1}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium text-white">
+                    {entry.profile?.full_name ?? t('Player')}
+                  </span>
+                  <span className="truncate text-gray-500">{entry.club?.name}</span>
+                  <span className="shrink-0 font-semibold text-brand-300">{entry.rating}</span>
+                  <span className="hidden shrink-0 text-xs text-gray-500 sm:inline">
+                    {entry.games} {entry.games === 1 ? t('game') : t('games')}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
 
         {error && (
           <div className="mb-5">
