@@ -32,6 +32,7 @@ export function ClubsPage() {
         ) : clubs.length === 0 ? (
           <EmptyState icon={<Building2 className="w-12 h-12" />} title={t('No clubs yet')} description={t('Chess clubs will appear here once organizers register them.')} />
         ) : (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {clubs.map((club) => (
               <Link key={club.id} to={{ name: 'club', id: club.id }}>
@@ -78,6 +79,7 @@ export function ClubsPage() {
               </Button>
             </div>
           )}
+          </>
         )}
       </div>
     </div>
